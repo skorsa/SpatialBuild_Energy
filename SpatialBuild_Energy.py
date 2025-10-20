@@ -1394,9 +1394,9 @@ def manage_scale_climate_data():
     
     # Get dynamic options from database with error handling
     try:
-        scale_options = query_dynamic_scale_options(conn)
-        climate_options = query_climate_options(conn)
- 
+        scale_options = query_scale_options_with_counts(conn)
+        climate_options = query_climate_options_with_counts(conn)
+    
     except Exception as e:
         st.warning("Some filter data is not available yet. Please import location and climate data first.")
         scale_options = []
@@ -1487,28 +1487,40 @@ def manage_scale_climate_data():
         else:
             st.info("No scale data")
 
-        with col4:
-            # Climate filter - using dropdown with colored glyphs (no redundant preview)
-            if climate_options:            
-                # Extract just the formatted text for the dropdown
+    with col4:
+        # Climate filter - handle both tuple and string formats
+        if climate_options:            
+            # Handle different formats - check if it's list of tuples or list of strings
+            if isinstance(climate_options[0], tuple):
+                # New format: list of tuples (formatted, color)
                 climate_dropdown_options = ["All"] + [formatted for formatted, color in climate_options]
-                
-                selected_climate_dropdown = st.selectbox(
-                    "Select Climate",
-                    options=climate_dropdown_options,
-                    key="admin_climate_dropdown"
-                )
-                
-                # Extract climate code for filtering
-                if selected_climate_dropdown != "All":
-                    climate_code = selected_climate_dropdown.split(" - ")[0].replace("🟦 ", "").replace("🟥 ", "").replace("🟧 ", "").replace("🟨 ", "").replace("🟩 ", "").replace("🟪 ", "").replace("⬛ ", "").replace("⬜ ", "") if " - " in selected_climate_dropdown else selected_climate_dropdown
-                    selected_climates = [climate_code]
-                else:
-                    selected_climates = []
             else:
-                st.info("No climate data available")
+                # Old format: list of strings
+                climate_dropdown_options = ["All"] + climate_options
+            
+            selected_climate_dropdown = st.selectbox(
+                "Select Climate",
+                options=climate_dropdown_options,
+                key="admin_climate_dropdown"
+            )
+            
+            # Extract climate code for filtering
+            if selected_climate_dropdown != "All":
+                if isinstance(climate_options[0], tuple):
+                    # New format: extract from formatted string
+                    climate_code = selected_climate_dropdown.split(" - ")[0]
+                    # Remove any emoji characters
+                    climate_code = ''.join([c for c in climate_code if c.isalnum()])
+                else:
+                    # Old format: use directly
+                    climate_code = selected_climate_dropdown
+                selected_climates = [climate_code]
+            else:
                 selected_climates = []
-    
+        else:
+            st.info("No climate data available")
+            selected_climates = []
+            
     
     # Filter records in memory
     filtered_records = records
@@ -1525,9 +1537,22 @@ def manage_scale_climate_data():
     st.write(f"**Showing {len(filtered_records)} approved records**")
     
     # Show data source info
+# Show data source info
     with st.expander("📊 Data Source Info", expanded=False):
         st.write(f"**Dynamic Scale Options ({len(scale_options)}):** {', '.join(scale_options[:10])}{'...' if len(scale_options) > 10 else ''}")
-        st.write(f"**Dynamic Climate Options ({len(climate_options)}):** {', '.join(climate_options[:10])}{'...' if len(climate_options) > 10 else ''}")
+        
+        # Handle both tuple and string formats for climate options
+        if climate_options:
+            if isinstance(climate_options[0], tuple):
+                # New format: list of tuples
+                climate_texts = [formatted for formatted, color in climate_options[:10]]
+            else:
+                # Old format: list of strings
+                climate_texts = climate_options[:10]
+            st.write(f"**Dynamic Climate Options ({len(climate_options)}):** {', '.join(climate_texts)}{'...' if len(climate_options) > 10 else ''}")
+        else:
+            st.write("**Dynamic Climate Options (0):** No data available")
+        
         st.caption("💡 These options are automatically extracted from your imported Excel data")
     
     # Process records in batches if needed
@@ -2123,13 +2148,130 @@ def query_scale_options(conn):
     return [row[0] for row in cursor.fetchall()]
 
 def query_climate_options(conn):
+    """Get climate options for admin dashboard - compatible with new format"""
+    # Use the same function as the main app
+    climate_data = query_dominant_climate_options(conn)
+    # Return just the formatted strings for backward compatibility
+    return [formatted for formatted, color in climate_data]
+
+def query_scale_options_with_counts(conn, criteria=None, energy_method=None, direction=None):
+    """Get scale options with counts filtered by current search criteria"""
     cursor = conn.cursor()
-    cursor.execute('''
-        SELECT DISTINCT climate FROM energy_data 
-        WHERE climate IS NOT NULL AND climate != '' 
-        ORDER BY climate ASC
-    ''')
-    return [row[0] for row in cursor.fetchall()]
+    
+    query = '''
+        SELECT scale, COUNT(*) as count
+        FROM energy_data 
+        WHERE scale IS NOT NULL 
+          AND scale != '' 
+          AND scale != 'Awaiting data'
+          AND paragraph IS NOT NULL 
+          AND paragraph != '' 
+          AND paragraph != '0' 
+          AND paragraph != '0.0'
+          AND paragraph != 'None'
+          AND LENGTH(TRIM(paragraph)) > 0
+          AND status NOT IN ("pending", "rejected")
+    '''
+    params = []
+    
+    if criteria and criteria != "Select a determinant":
+        query += ' AND criteria = ?'
+        params.append(criteria)
+    
+    if energy_method and energy_method != "Select an output":
+        query += ' AND energy_method = ?'
+        params.append(energy_method)
+    
+    if direction and direction not in ["Select a direction", None]:
+        # Handle both formatted and clean direction
+        clean_direction = direction.split(" [")[0] if " [" in direction else direction
+        query += ' AND direction = ?'
+        params.append(clean_direction)
+    
+    query += ' GROUP BY scale ORDER BY scale ASC'
+    
+    cursor.execute(query, params)
+    results = cursor.fetchall()
+    scales_with_counts = [(row[0], row[1]) for row in results if row[0] and str(row[0]).strip()]
+    return scales_with_counts
+
+def query_climate_options_with_counts(conn, criteria=None, energy_method=None, direction=None):
+    """Get climate options with counts filtered by current search criteria"""
+    cursor = conn.cursor()
+    
+    query = '''
+        SELECT climate, COUNT(*) as count
+        FROM energy_data 
+        WHERE climate IS NOT NULL 
+          AND climate != '' 
+          AND climate != 'Awaiting data'
+          AND paragraph IS NOT NULL 
+          AND paragraph != '' 
+          AND paragraph != '0' 
+          AND paragraph != '0.0'
+          AND paragraph != 'None'
+          AND LENGTH(TRIM(paragraph)) > 0
+          AND status NOT IN ("pending", "rejected")
+    '''
+    params = []
+    
+    if criteria and criteria != "Select a determinant":
+        query += ' AND criteria = ?'
+        params.append(criteria)
+    
+    if energy_method and energy_method != "Select an output":
+        query += ' AND energy_method = ?'
+        params.append(energy_method)
+    
+    if direction and direction not in ["Select a direction", None]:
+        # Handle both formatted and clean direction
+        clean_direction = direction.split(" [")[0] if " [" in direction else direction
+        query += ' AND direction = ?'
+        params.append(clean_direction)
+    
+    query += ' GROUP BY climate ORDER BY climate ASC'
+    
+    cursor.execute(query, params)
+    results = cursor.fetchall()
+    
+    # Define ONLY the allowed Köppen climate classifications with descriptions
+    koppen_climates_with_descriptions = {
+        'Af': 'Tropical Rainforest', 'Am': 'Tropical Monsoon', 'Aw': 'Tropical Savanna',
+        'BWh': 'Hot Desert', 'BWk': 'Cold Desert', 'BSh': 'Hot Semi-arid', 'BSk': 'Cold Semi-arid',
+        'Cfa': 'Humid Subtropical', 'Cfb': 'Oceanic', 'Cfc': 'Subpolar Oceanic',
+        'Csa': 'Hot-summer Mediterranean', 'Csb': 'Warm-summer Mediterranean',
+        'Dfa': 'Hot-summer Humid Continental', 'Dfb': 'Warm-summer Humid Continental', 
+        'Dfc': 'Subarctic', 'Dfd': 'Extremely Cold Subarctic',
+        'ET': 'Tundra', 'EF': 'Ice Cap'
+    }
+    
+    # Color to emoji mapping
+    color_to_emoji = {
+        '#0000FE': '🟦', '#0077FD': '🟦', '#44A7F8': '🟦',
+        '#FD0000': '🟥', '#F89292': '🟥', '#F4A400': '🟧', '#FEDA60': '🟨',
+        '#FFFE04': '🟨', '#CDCE08': '🟨', '#95FE97': '🟩', '#62C764': '🟩',
+        '#379632': '🟩', '#C5FF4B': '🟩', '#64FD33': '🟩', '#36C901': '🟩',
+        '#FE01FC': '🟪', '#CA03C2': '🟪', '#973396': '🟪', '#8C5D91': '🟪',
+        '#A5ADFE': '🟦', '#4A78E7': '🟦', '#48DDB1': '🟦', '#32028A': '🟪',
+        '#01FEFC': '🟦', '#3DC6FA': '🟦', '#037F7F': '🟦', '#004860': '🟦',
+        '#AFB0AB': '⬜', '#686964': '⬛',
+    }
+    
+    # Filter to ONLY include the specified Köppen classifications with color glyphs and counts
+    valid_climates = []
+    for climate, count in results:
+        if climate in koppen_climates_with_descriptions:
+            # Get color for this climate
+            color = get_climate_color(climate)
+            # Get corresponding emoji
+            emoji = color_to_emoji.get(color, '⬜')
+            # Format as "🟦 Cfa - Humid Subtropical [5]"
+            formatted_climate = f"{emoji} {climate} - {koppen_climates_with_descriptions[climate]} [{count}]"
+            valid_climates.append((climate, formatted_climate, color, count))
+    
+    # Sort by climate code
+    valid_climates.sort(key=lambda x: x[0])
+    return [(formatted, color, count) for _, formatted, color, count in valid_climates]
 
 def query_dynamic_scale_options(conn):
     """Get unique scale values from the database"""
@@ -2354,59 +2496,99 @@ def render_main_tab():
                 col1, col2 = st.columns(2)
 
                 with col1:
-                    # Scale filter - Single select dropdown
-                    if scale_options:
-                        # Initialize session state for scale
-                        if 'selected_scale' not in st.session_state:
-                            st.session_state.selected_scale = "All"
+                    # Scale filter - with dynamic counts based on current search
+                    if (st.session_state.selected_criteria and 
+                        st.session_state.selected_criteria != "Select a determinant" and
+                        st.session_state.selected_method and 
+                        st.session_state.selected_method != "Select an output" and
+                        selected_direction):
                         
-                        scale_options_with_all = ["All"] + scale_options
-                        
-                        selected_scale = st.selectbox(
-                            "Filter by Scale",
-                            options=scale_options_with_all,
-                            index=scale_options_with_all.index(st.session_state.selected_scale),
-                            key="scale_select"
+                        scale_options_with_counts = query_scale_options_with_counts(
+                            conn, 
+                            st.session_state.selected_criteria, 
+                            st.session_state.selected_method, 
+                            selected_direction
                         )
                         
-                        # Update session state and apply filter logic
-                        if selected_scale != st.session_state.selected_scale:
-                            st.session_state.selected_scale = selected_scale
-                            st.rerun()
-                        
-                        selected_scales = [selected_scale] if selected_scale != "All" else None
+                        if scale_options_with_counts:
+                            if 'selected_scale' not in st.session_state:
+                                st.session_state.selected_scale = "All"
+                            
+                            # Create options with counts
+                            scale_options_formatted = ["All"] + [f"{scale} [{count}]" for scale, count in scale_options_with_counts]
+                            
+                            selected_scale = st.selectbox(
+                                "Filter by Scale",
+                                options=scale_options_formatted,
+                                index=scale_options_formatted.index(st.session_state.selected_scale) if st.session_state.selected_scale in scale_options_formatted else 0,
+                                key="scale_select"
+                            )
+                            
+                            # Update session state and apply filter logic
+                            if selected_scale != st.session_state.selected_scale:
+                                st.session_state.selected_scale = selected_scale
+                                st.rerun()
+                            
+                            # Extract just the scale name for filtering (remove count)
+                            if selected_scale != "All":
+                                scale_name = selected_scale.split(" [")[0]
+                                selected_scales = [scale_name]
+                            else:
+                                selected_scales = None
+                        else:
+                            st.info("No scale data available for current selection")
+                            selected_scales = None
                     else:
-                        st.info("No scale data available")
+                        st.info("Select determinant, output and direction first")
                         selected_scales = None
 
                 with col2:
-                # Climate filter - with colored glyphs (no redundant preview)
-                    if dominant_climate_options:
-                        if 'selected_climate' not in st.session_state:
-                            st.session_state.selected_climate = "All"
+                    # Climate filter - with dynamic counts based on current search
+                    if (st.session_state.selected_criteria and 
+                        st.session_state.selected_criteria != "Select a determinant" and
+                        st.session_state.selected_method and 
+                        st.session_state.selected_method != "Select an output" and
+                        selected_direction):
                         
-                        # Create options list with colored display
-                        climate_options_with_all = ["All"] + [formatted for formatted, color in dominant_climate_options]
-                        
-                        selected_climate = st.selectbox(
-                            "Filter by Climate",
-                            options=climate_options_with_all,
-                            index=climate_options_with_all.index(st.session_state.selected_climate),
-                            key="climate_select_simple"
+                        climate_options_with_counts = query_climate_options_with_counts(
+                            conn, 
+                            st.session_state.selected_criteria, 
+                            st.session_state.selected_method, 
+                            selected_direction
                         )
                         
-                        if selected_climate != st.session_state.selected_climate:
-                            st.session_state.selected_climate = selected_climate
-                            st.rerun()
-                        
-                        # Extract just the climate code for filtering
-                        if selected_climate != "All":
-                            climate_code = selected_climate.split(" - ")[0].replace("🟦 ", "").replace("🟥 ", "").replace("🟧 ", "").replace("🟨 ", "").replace("🟩 ", "").replace("🟪 ", "").replace("⬛ ", "").replace("⬜ ", "") if " - " in selected_climate else selected_climate
-                            selected_dominant_climates = [climate_code]
+                        if climate_options_with_counts:
+                            if 'selected_climate' not in st.session_state:
+                                st.session_state.selected_climate = "All"
+                            
+                            # Create options with colored display and counts
+                            climate_options_formatted = ["All"] + [formatted for formatted, color, count in climate_options_with_counts]
+                            
+                            selected_climate = st.selectbox(
+                                "Filter by Climate",
+                                options=climate_options_formatted,
+                                index=climate_options_formatted.index(st.session_state.selected_climate) if st.session_state.selected_climate in climate_options_formatted else 0,
+                                key="climate_select_simple"
+                            )
+                            
+                            if selected_climate != st.session_state.selected_climate:
+                                st.session_state.selected_climate = selected_climate
+                                st.rerun()
+                            
+                            # Extract just the climate code for filtering
+                            if selected_climate != "All":
+                                # Remove the emoji, description, and count to get just the climate code
+                                climate_code = selected_climate.split(" - ")[0]
+                                # Remove any emoji characters and count
+                                climate_code = ''.join([c for c in climate_code if c.isalnum()])
+                                selected_dominant_climates = [climate_code]
+                            else:
+                                selected_dominant_climates = None
                         else:
+                            st.info("No climate data available for current selection")
                             selected_dominant_climates = None
                     else:
-                        st.info("No climate data available")
+                        st.info("Select determinant, output and direction first")
                         selected_dominant_climates = None
 
                     #logic for scale
