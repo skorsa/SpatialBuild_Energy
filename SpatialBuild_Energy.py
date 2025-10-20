@@ -1483,19 +1483,45 @@ def manage_scale_climate_data():
     with col3:
         # Multi-select for scale filter with dynamic options
         if scale_options:
-            selected_scales = st.multiselect("Filter by Scale", scale_options, key="admin_edit_scale_filter")
-        else:
-            st.info("No scale data")
-
-    with col4:
-        # Climate filter - handle both tuple and string formats
-        if climate_options:            
-            # Handle different formats - check if it's list of tuples or list of strings
-            if isinstance(climate_options[0], tuple):
-                # New format: list of tuples (formatted, color)
-                climate_dropdown_options = ["All"] + [formatted for formatted, color in climate_options]
+            # Handle different formats for scale options
+            if isinstance(scale_options[0], tuple):
+                # New format with counts: list of tuples (scale, count)
+                scale_display_options = [f"{scale} [{count}]" for scale, count in scale_options]
             else:
                 # Old format: list of strings
+                scale_display_options = scale_options
+                
+            selected_scales = st.multiselect("Filter by Scale", scale_display_options, key="admin_edit_scale_filter")
+            
+            # Extract just scale names for filtering (remove counts if present)
+            if selected_scales:
+                clean_scales = []
+                for scale in selected_scales:
+                    if " [" in scale:
+                        clean_scales.append(scale.split(" [")[0])
+                    else:
+                        clean_scales.append(scale)
+                selected_scales = clean_scales
+        else:
+            st.info("No scale data")
+            selected_scales = []
+
+    # In the filter section of manage_scale_climate_data(), replace the climate filter with:
+
+    with col4:
+        # Climate filter - handle both old and new formats
+        if climate_options:            
+            # Handle different formats
+            if isinstance(climate_options[0], tuple):
+                # Check if it's the new format with counts (3 items) or old format (2 items)
+                if len(climate_options[0]) == 3:
+                    # New format: list of tuples (formatted, color, count)
+                    climate_dropdown_options = ["All"] + [formatted for formatted, color, count in climate_options]
+                else:
+                    # Old format: list of tuples (formatted, color)
+                    climate_dropdown_options = ["All"] + [formatted for formatted, color in climate_options]
+            else:
+                # Very old format: list of strings
                 climate_dropdown_options = ["All"] + climate_options
             
             selected_climate_dropdown = st.selectbox(
@@ -1507,9 +1533,9 @@ def manage_scale_climate_data():
             # Extract climate code for filtering
             if selected_climate_dropdown != "All":
                 if isinstance(climate_options[0], tuple):
-                    # New format: extract from formatted string
+                    # Handle tuple formats - extract from formatted string
                     climate_code = selected_climate_dropdown.split(" - ")[0]
-                    # Remove any emoji characters
+                    # Remove any emoji characters and count brackets
                     climate_code = ''.join([c for c in climate_code if c.isalnum()])
                 else:
                     # Old format: use directly
@@ -1536,18 +1562,28 @@ def manage_scale_climate_data():
     
     st.write(f"**Showing {len(filtered_records)} approved records**")
     
-    # Show data source info
 # Show data source info
     with st.expander("📊 Data Source Info", expanded=False):
-        st.write(f"**Dynamic Scale Options ({len(scale_options)}):** {', '.join(scale_options[:10])}{'...' if len(scale_options) > 10 else ''}")
+        # Handle scale options format
+        if scale_options:
+            if isinstance(scale_options[0], tuple):
+                scale_texts = [f"{scale} [{count}]" for scale, count in scale_options[:10]]
+            else:
+                scale_texts = scale_options[:10]
+            st.write(f"**Dynamic Scale Options ({len(scale_options)}):** {', '.join(scale_texts)}{'...' if len(scale_options) > 10 else ''}")
+        else:
+            st.write("**Dynamic Scale Options (0):** No data available")
         
-        # Handle both tuple and string formats for climate options
+        # Handle climate options format
         if climate_options:
             if isinstance(climate_options[0], tuple):
-                # New format: list of tuples
-                climate_texts = [formatted for formatted, color in climate_options[:10]]
+                if len(climate_options[0]) == 3:
+                    # New format with counts
+                    climate_texts = [formatted for formatted, color, count in climate_options[:10]]
+                else:
+                    # Old format without counts
+                    climate_texts = [formatted for formatted, color in climate_options[:10]]
             else:
-                # Old format: list of strings
                 climate_texts = climate_options[:10]
             st.write(f"**Dynamic Climate Options ({len(climate_options)}):** {', '.join(climate_texts)}{'...' if len(climate_options) > 10 else ''}")
         else:
@@ -1695,9 +1731,30 @@ def manage_scale_climate_data():
             
             with col2:
                 st.write(f"**Scale:** {scale}")
-                if climate:
-                    color = get_climate_color(climate)
-                    st.markdown(f"**Climate:** <span style='background-color: {color}; padding: 2px 8px; border-radius: 10px; color: black;'>{climate}</span>", unsafe_allow_html=True)
+                
+            if climate:
+                # Handle different climate option formats for display
+                formatted_climate_display = climate
+                if climate_options and isinstance(climate_options[0], tuple):
+                    # Try to find the formatted version from climate_options
+                    for option in climate_options:
+                        if len(option) == 3:
+                            formatted, color_option, count = option
+                        else:
+                            formatted, color_option = option
+                            
+                        # Check if this formatted option matches our climate
+                        climate_code_from_formatted = formatted.split(" - ")[0]
+                        # Remove emoji to get just the code
+                        climate_code_clean = ''.join([c for c in climate_code_from_formatted if c.isalnum()])
+                        if climate_code_clean == climate:
+                            formatted_climate_display = formatted
+                            break
+                
+                color = get_climate_color(climate)
+                st.markdown(f"**Climate:** <span style='background-color: {color}; padding: 2px 8px; border-radius: 10px; color: black;'>{formatted_climate_display}</span>", unsafe_allow_html=True)
+
+
                 st.write(f"**Status:** {status}")
             
             # Study content preview
