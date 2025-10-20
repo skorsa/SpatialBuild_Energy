@@ -218,24 +218,73 @@ def contribute():
         )
 
         # In the save section, make sure you're using st.session_state.current_user:
+        # Add scale and climate fields before the save button
+        st.markdown("---")
+        st.subheader("Additional Information (Optional)")
+
+        col_scale, col_climate = st.columns(2)
+
+        with col_scale:
+            scale_options = query_dynamic_scale_options(conn)
+            selected_scale = st.selectbox(
+                "Scale",
+                options=["Select scale"] + scale_options + ["Add new scale"],
+                key="contribute_scale"
+            )
+            
+            new_scale = ""
+            if selected_scale == "Add new scale":
+                new_scale = st.text_input("Enter new scale", key="contribute_new_scale")
+
+        with col_climate:
+            climate_options_data = query_dominant_climate_options(conn)
+            climate_options = [formatted for formatted, color in climate_options_data]
+            selected_climate = st.selectbox(
+                "Climate",
+                options=["Select climate"] + climate_options + ["Add new climate"],
+                key="contribute_climate"
+            )
+            
+            new_climate = ""
+            if selected_climate == "Add new climate":
+                new_climate = st.text_input("Enter new climate code", key="contribute_new_climate")
+
+        # Location field
+        location = st.text_input("Location (optional)", key="contribute_location", 
+                                placeholder="e.g., United States, Europe, Specific city/region")
+
+        st.markdown("---")
+
+        # In the save section, make sure you're using st.session_state.current_user:
         if st.button("Save", key="save_new_record"):
             # Save record only if text is provided
             if new_paragraph.strip():
                 cursor = conn.cursor()
 
-                # Save the record - FIX THE USER FIELD
+                # Prepare scale and climate values
+                final_scale = new_scale if selected_scale == "Add new scale" else selected_scale
+                final_climate = new_climate if selected_climate == "Add new climate" else selected_climate
+                
+                # Clean climate code if it's formatted
+                if final_climate and " - " in final_climate:
+                    final_climate = final_climate.split(" - ")[0]
+                    # Remove emoji if present
+                    final_climate = ''.join([c for c in final_climate if c.isalnum()])
+
+                # Save the record
                 cursor.execute('''
-                    INSERT INTO energy_data (criteria, energy_method, direction, paragraph, status, user, scale, climate)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO energy_data (criteria, energy_method, direction, paragraph, status, user, scale, climate, location)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     new_determinant or st.session_state.selected_determinant_choice,
                     new_energy_output or st.session_state.selected_energy_output_choice,
                     st.session_state.selected_selected_direction,
                     new_paragraph,
                     "pending",
-                    st.session_state.current_user,  # FIXED: Use st.session_state.current_user
-                    "Awaiting data",  # Default scale
-                    "Awaiting data"   # Default climate
+                    st.session_state.current_user,
+                    final_scale if final_scale != "Select scale" else "Awaiting data",
+                    final_climate if final_climate != "Select climate" else "Awaiting data",
+                    location if location else None
                 ))
                 conn.commit()
 
@@ -251,7 +300,6 @@ def contribute():
                 st.rerun()
             else:
                 st.warning("Please ensure the record is not empty before saving.")
-
 
 def import_location_climate_data_unique():
     global conn
@@ -1117,83 +1165,46 @@ def display_admin_matching_review(matched_records, unmatched_studies, excel_df=N
 
 def extract_climate_data(climate_text):
     """
-    Extract dominant climate and multi-climate regions from climate text
+    Extract dominant climate code from climate text
     Format examples:
-    - "Cfa (Humid subtropical)" -> dominant: Cfa, multi: None
-    - "USA | Cfa (Humid subtropical) dominant, also Dfa, Dfb, BWh" -> dominant: Cfa, multi: ['Cfa', 'Dfa', 'Dfb', 'BWh']
-    - "Cfa, Dfa" -> dominant: Cfa, multi: ['Cfa', 'Dfa']
-    - "Tropical" -> dominant: Tropical, multi: None
+    - "United Arab Emirates (UAE), Downtown Abu Dhabi | BWh (Hot desert)" -> "BWh"
+    - "USA | Cfa (Humid subtropical) dominant, also Dfa, Dfb, BWh" -> "Cfa"
+    - "Cfa (Humid subtropical)" -> "Cfa"
+    - "Cfa, Dfa" -> "Cfa"
     """
     if not climate_text or pd.isna(climate_text) or str(climate_text).strip() == '':
         return None, []
     
     climate_text = str(climate_text).strip()
     
-    # Remove country/region prefix if present (everything before |)
-    if '|' in climate_text:
-        climate_text = climate_text.split('|')[1].strip()
+    # Define valid Köppen climate codes we want to extract
+    valid_climate_codes = [
+        'Af', 'Am', 'Aw', 'BWh', 'BWk', 'BSh', 'BSk', 
+        'Cfa', 'Cfb', 'Cfc', 'Csa', 'Csb', 
+        'Dfa', 'Dfb', 'Dfc', 'Dfd', 'ET', 'EF'
+    ]
     
-    # Initialize variables
-    dominant_climate = None
-    multi_climates = []
+    # Method 1: Extract after "| " (most common format)
+    if '| ' in climate_text:
+        # Get the part after the pipe
+        after_pipe = climate_text.split('| ')[1]
+        # Look for the first valid climate code
+        for code in valid_climate_codes:
+            if code in after_pipe:
+                dominant_climate = code
+                # Also extract any other valid codes for multi-climate
+                multi_climates = [c for c in valid_climate_codes if c in after_pipe]
+                return dominant_climate, multi_climates
     
-    # Extract ALL Koppen climate codes from the text
-    all_climate_codes = re.findall(r'[A-Z][a-z]?[A-Z]?[a-z]?', climate_text)
+    # Method 2: Look for any valid climate codes in the text
+    found_codes = [code for code in valid_climate_codes if code in climate_text]
+    if found_codes:
+        # Use the first found code as dominant
+        dominant_climate = found_codes[0]
+        return dominant_climate, found_codes
     
-    # Remove duplicates and empty values
-    all_climate_codes = list(set([code.strip() for code in all_climate_codes if code.strip()]))
-    
-    # Determine dominant climate and multi-climates
-    if len(all_climate_codes) == 0:
-        # No climate codes found, check for textual climate names
-        climate_lower = climate_text.lower()
-        if 'tropical' in climate_lower:
-            dominant_climate = 'Tropical'
-            multi_climates = ['Tropical']
-        elif 'arid' in climate_lower or 'desert' in climate_lower:
-            dominant_climate = 'Arid'
-            multi_climates = ['Arid']
-        elif 'temperate' in climate_lower:
-            dominant_climate = 'Temperate'
-            multi_climates = ['Temperate']
-        elif 'continental' in climate_lower:
-            dominant_climate = 'Continental'
-            multi_climates = ['Continental']
-        elif 'polar' in climate_lower:
-            dominant_climate = 'Polar'
-            multi_climates = ['Polar']
-        elif 'mediterranean' in climate_lower:
-            dominant_climate = 'Mediterranean'
-            multi_climates = ['Mediterranean']
-    
-    elif len(all_climate_codes) == 1:
-        # Single climate code
-        dominant_climate = all_climate_codes[0]
-        multi_climates = [dominant_climate]  # Include in multi for consistency
-    
-    else:
-        # Multiple climate codes - determine dominant
-        # Look for explicit dominant pattern
-        dominant_pattern = r'([A-Z][a-z]?[A-Z]?[a-z]?)\s*\([^)]+\)\s*dominant'
-        dominant_match = re.search(dominant_pattern, climate_text)
-        
-        if dominant_match:
-            dominant_climate = dominant_match.group(1).strip()
-        else:
-            # No explicit dominant, use the first one as dominant
-            dominant_climate = all_climate_codes[0]
-        
-        # All codes go into multi_climates
-        multi_climates = all_climate_codes
-    
-    # Clean up: ensure dominant is included in multi if not already
-    if dominant_climate and dominant_climate not in multi_climates:
-        multi_climates.append(dominant_climate)
-    
-    # Remove duplicates again
-    multi_climates = list(set(multi_climates))
-    
-    return dominant_climate, multi_climates
+    # Method 3: If no valid codes found, return the original text as dominant
+    return climate_text, [climate_text]
 
 def process_confirmed_matches(confirmed_matches, excel_df):
     """Process the user-confirmed matches with enhanced climate data handling"""
@@ -1256,6 +1267,7 @@ def process_confirmed_matches(confirmed_matches, excel_df):
             
             # Convert multi_climates list to string for database storage
             multi_climate_str = ', '.join(multi_climates) if multi_climates else None
+            st.sidebar.write(f"Record {record_id}: Climate text='{climate_text}' -> Dominant='{dominant_climate}', Multi='{multi_climates}'")
             
             # Update the database record - store dominant in 'climate' and multi in 'climate_multi'
             cursor.execute('''
@@ -2717,18 +2729,76 @@ def render_main_tab():
                             st.session_state.show_new_record_form = True
 
                     if st.session_state.get("show_new_record_form", False):
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            # Scale selection
+                            scale_options = query_dynamic_scale_options(conn)
+                            selected_scale = st.selectbox(
+                                "Scale",
+                                options=["Select scale"] + scale_options + ["Add new scale"],
+                                key="main_new_record_scale"
+                            )
+                            
+                            # Add new scale if selected
+                            new_scale = ""
+                            if selected_scale == "Add new scale":
+                                new_scale = st.text_input("Enter new scale", key="main_new_scale_input")
+                        
+                        with col2:
+                            # Climate selection
+                            climate_options_data = query_dominant_climate_options(conn)
+                            climate_options = [formatted for formatted, color in climate_options_data]
+                            selected_climate = st.selectbox(
+                                "Climate",
+                                options=["Select climate"] + climate_options + ["Add new climate"],
+                                key="main_new_record_climate"
+                            )
+                            
+                            # Add new climate if selected
+                            new_climate = ""
+                            if selected_climate == "Add new climate":
+                                new_climate = st.text_input("Enter new climate code (e.g., Cfa, BWh)", key="main_new_climate_input")
+                        
+                        # Study content
                         new_paragraph = st.text_area(
-                            f"Add new record for {st.session_state.selected_criteria} and {st.session_state.selected_method} ({selected_direction})",
-                            key="main_new_paragraph"
+                            f"Study content for {st.session_state.selected_criteria} and {st.session_state.selected_method} ({selected_direction})",
+                            key="main_new_paragraph",
+                            height=150,
+                            placeholder="Enter the study content, findings, or reference here..."
                         )
+                        
+                        # Location (optional)
+                        location = st.text_input("Location (optional)", key="main_new_record_location", 
+                                                placeholder="e.g., United States, Europe, Urban area")
                         
                         if st.button("Save", key="main_save_new_record"):
                             if new_paragraph.strip() and selected_direction:
+                                # Prepare scale and climate values
+                                final_scale = new_scale if selected_scale == "Add new scale" else selected_scale
+                                final_climate = new_climate if selected_climate == "Add new climate" else selected_climate
+                                
+                                # Clean climate code if it's formatted
+                                if final_climate and " - " in final_climate:
+                                    final_climate = final_climate.split(" - ")[0]
+                                    # Remove emoji if present
+                                    final_climate = ''.join([c for c in final_climate if c.isalnum()])
+                                
                                 cursor = conn.cursor()
                                 cursor.execute('''
-                                    INSERT INTO energy_data (criteria, energy_method, direction, paragraph, status, user)
-                                    VALUES (?, ?, ?, ?, ?, ?)
-                                ''', (st.session_state.selected_criteria, st.session_state.selected_method, selected_direction, new_paragraph, "pending", st.session_state.current_user))
+                                    INSERT INTO energy_data (criteria, energy_method, direction, paragraph, status, user, scale, climate, location)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ''', (
+                                    st.session_state.selected_criteria, 
+                                    st.session_state.selected_method, 
+                                    selected_direction.split(" [")[0],  # Clean direction
+                                    new_paragraph, 
+                                    "pending", 
+                                    st.session_state.current_user,
+                                    final_scale if final_scale != "Select scale" else "Awaiting data",
+                                    final_climate if final_climate != "Select climate" else "Awaiting data",
+                                    location if location else None
+                                ))
                                 conn.commit()
                                 st.success("New record submitted successfully. Status: pending verification")
                                 
@@ -2736,7 +2806,7 @@ def render_main_tab():
                                 time.sleep(2)                                  
                                 st.rerun()
                             else:
-                                st.warning("Please select a direction and ensure the record is not empty before saving.")
+                                st.warning("Please ensure the study content is not empty before saving.")
 
                 # st.image("bubblechart_placeholder.png")
                 # st.caption("Bubble chart visualizing studied determinants, energy outputs, and the direction of their relationships based on the literature.")
