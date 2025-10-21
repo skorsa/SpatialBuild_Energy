@@ -507,19 +507,6 @@ def reset_location_climate_scale_data():
     time.sleep(2)
     st.rerun()
 
-# Update the query functions to handle the new filters
-def query_location_options(conn):
-    """Get unique location values from the database"""
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT DISTINCT location FROM energy_data 
-        WHERE location IS NOT NULL 
-          AND location != '' 
-        ORDER BY location ASC
-    ''')
-    locations = [row[0] for row in cursor.fetchall()]
-    return [loc for loc in locations if loc and str(loc).strip()]
-
 def query_koppen_climate_options(conn):
     """Get only Koppen climate categories with descriptions"""
     cursor = conn.cursor()
@@ -696,23 +683,6 @@ def get_climate_color(climate_code):
     }
     return colors.get(climate_code, '#CCCCCC')
 
-def query_multi_climate_options(conn):
-    """Get climate options that appear in multiple locations/regions"""
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT climate, COUNT(DISTINCT location) as location_count
-        FROM energy_data 
-        WHERE climate IS NOT NULL 
-          AND climate != '' 
-          AND climate != 'Awaiting data'
-          AND location IS NOT NULL
-          AND location != ''
-        GROUP BY climate
-        HAVING COUNT(DISTINCT location) > 1
-        ORDER BY climate ASC
-    ''')
-    multi_climates = [row[0] for row in cursor.fetchall()]
-    return multi_climates
 
 def admin_dashboard():
     # Check if user is admin
@@ -1830,35 +1800,6 @@ def extract_climate_data(climate_text):
     # Method 3: If no valid codes found, return the original text as dominant
     return climate_text, [climate_text]
 
-def display_unmatched_analysis(unmatched_studies):
-    """Display detailed analysis of unmatched studies"""
-    st.subheader("📊 Unmatched Studies Analysis")
-    
-    # Length analysis
-    lengths = [len(study['study_name']) for study in unmatched_studies]
-    avg_length = sum(lengths) / len(lengths) if lengths else 0
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Average Length", f"{avg_length:.1f} chars")
-    with col2:
-        st.metric("Shortest", f"{min(lengths) if lengths else 0} chars")
-    with col3:
-        st.metric("Longest", f"{max(lengths) if lengths else 0} chars")
-    
-    # Common issues
-    issues = {
-        "Very Short (<20 chars)": len([s for s in unmatched_studies if len(s['study_name']) < 20]),
-        "Very Long (>100 chars)": len([s for s in unmatched_studies if len(s['study_name']) > 100]),
-        "Contains Special Chars": len([s for s in unmatched_studies if any(c in s['study_name'] for c in ['@', '#', '$', '%', '&', '*', '+', '='])]),
-        "All UPPERCASE": len([s for s in unmatched_studies if s['study_name'].isupper()]),
-        "Multiple Spaces": len([s for s in unmatched_studies if "  " in s['study_name']]),
-    }
-    
-    st.write("**Common Issues Found:**")
-    for issue, count in issues.items():
-        if count > 0:
-            st.write(f"• {issue}: {count} studies")
 
 def show_length_distribution(unmatched_studies):
     """Show length distribution of unmatched studies"""
@@ -2066,24 +2007,6 @@ def remove_scale_coverage_column():
 #remove_scale_coverage_column()
 
 
-def query_multi_climate_options(conn):
-    """Get unique climate codes from climate_multi column (multiple selection)"""
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT DISTINCT climate_multi FROM energy_data 
-        WHERE climate_multi IS NOT NULL 
-          AND climate_multi != '' 
-    ''')
-    
-    multi_climates = set()
-    for row in cursor.fetchall():
-        if row[0]:
-            # Split comma-separated climate codes
-            codes = [code.strip() for code in row[0].split(',')]
-            multi_climates.update(codes)
-    
-    return sorted(multi_climates)
-
 
 def add_location_scale_coverage_columns():
     db_file = 'my_database.db'
@@ -2192,105 +2115,237 @@ def manage_scale_climate_data():
     # Initialize all filter variables
     selected_scales = []
     selected_climates = []
-    selected_climates = []
+    selected_direction = None
+    actual_method = None  # Initialize here to avoid UnboundLocalError
 
+    # FILTER LAYOUT - Consistent with main app
+    # Step 1: Determinant dropdown - full width
+    selected_criteria = st.selectbox("Filter by Determinant", criteria_list, key="admin_edit_criteria")
+    actual_criteria = selected_criteria.split(" [")[0] if selected_criteria != "All determinants" else None
     
-    # Filters
-    col1, col2, = st.columns(2)
-    with col1:
-        selected_criteria = st.selectbox("Filter by Determinant", criteria_list, key="admin_edit_criteria")
-        actual_criteria = selected_criteria.split(" [")[0] if selected_criteria != "All determinants" else None
-    with col2:
+    # Step 2: Energy Output dropdown - full width (only if determinant is selected)
+    if actual_criteria:
+        energy_method_counts = query_energy_method_counts(conn, actual_criteria)
+        method_list = ["All outputs"] + [f"{method} [{count}]" for method, count in energy_method_counts]
+        
         selected_method = st.selectbox("Filter by Energy Output", method_list, key="admin_edit_method")
         actual_method = selected_method.split(" [")[0] if selected_method != "All outputs" else None
-    
+        
+        # Step 3: Direction radio buttons - full width (only if both determinant and method are selected)
+        if actual_method:
+            # Query function to get the count for each direction
+            def query_direction_counts(conn, selected_criteria, selected_method):
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT direction, COUNT(paragraph) as count
+                    FROM energy_data
+                    WHERE criteria = ? AND energy_method = ? AND paragraph IS NOT NULL AND paragraph != '' AND paragraph != '0' AND paragraph != '0.0' AND status NOT IN ("pending", "rejected")
+                    GROUP BY direction
+                ''', (selected_criteria, selected_method))
+                return dict(cursor.fetchall())
 
-    # Climate and location filters
-    col3, col4, = st.columns(2)
-    
-    with col3:
-        # Multi-select for scale filter with dynamic options
-        if scale_options:
-            # Handle different formats for scale options
-            if isinstance(scale_options[0], tuple):
-                # New format with counts: list of tuples (scale, count)
-                scale_display_options = [f"{scale} [{count}]" for scale, count in scale_options]
-            else:
-                # Old format: list of strings
-                scale_display_options = scale_options
-                
-            selected_scales = st.multiselect("Filter by Scale", scale_display_options, key="admin_edit_scale_filter")
-            
-            # Extract just scale names for filtering (remove counts if present)
-            if selected_scales:
-                clean_scales = []
-                for scale in selected_scales:
-                    if " [" in scale:
-                        clean_scales.append(scale.split(" [")[0])
-                    else:
-                        clean_scales.append(scale)
-                selected_scales = clean_scales
-        else:
-            st.info("No scale data")
-            selected_scales = []
+            # Fetch counts for each direction
+            direction_counts = query_direction_counts(conn, actual_criteria, actual_method)
+            increase_count = direction_counts.get("Increase", 0)
+            decrease_count = direction_counts.get("Decrease", 0)
 
-    # In the filter section of manage_scale_climate_data(), replace the climate filter with:
-
-    with col4:
-        # Climate filter - handle both old and new formats
-        if climate_options:            
-            # Handle different formats
-            if isinstance(climate_options[0], tuple):
-                # Check if it's the new format with counts (3 items) or old format (2 items)
-                if len(climate_options[0]) == 3:
-                    # New format: list of tuples (formatted, color, count)
-                    climate_dropdown_options = ["All"] + [formatted for formatted, color, count in climate_options]
-                else:
-                    # Old format: list of tuples (formatted, color)
-                    climate_dropdown_options = ["All"] + [formatted for formatted, color in climate_options]
-            else:
-                # Very old format: list of strings
-                climate_dropdown_options = ["All"] + climate_options
-            
-            selected_climate_dropdown = st.selectbox(
-                "Select Climate",
-                options=climate_dropdown_options,
-                key="admin_climate_dropdown"
+            # Display radio buttons with counts
+            selected_direction = st.radio(
+                "Please select the direction of the relationship",
+                [f"Increase [{increase_count}]", f"Decrease [{decrease_count}]"],
+                index=None,  # No preselection
+                key="admin_direction_radio"
             )
             
-            # Extract climate code for filtering
-            if selected_climate_dropdown != "All":
-                if isinstance(climate_options[0], tuple):
-                    # Handle tuple formats - extract from formatted string
-                    climate_code = selected_climate_dropdown.split(" - ")[0]
-                    # Remove any emoji characters and count brackets
-                    climate_code = ''.join([c for c in climate_code if c.isalnum()])
-                else:
-                    # Old format: use directly
-                    climate_code = selected_climate_dropdown
-                selected_climates = [climate_code]
-            else:
-                selected_climates = []
-        else:
-            st.info("No climate data available")
-            selected_climates = []
-            
-    
-    # Filter records in memory
+            # Step 4: Scale and Climate filters in 2 columns (only when direction is selected)
+            if selected_direction:
+                col_scale, col_climate = st.columns(2)
+                
+                with col_scale:
+                    # Scale filter - with dynamic counts based on current search AND climate filter
+                    if scale_options:
+                        # Get current climate selection for scale counts
+                        current_climate_filter = []
+                        if 'admin_selected_climate' in st.session_state and st.session_state.admin_selected_climate != "All":
+                            climate_code = st.session_state.admin_selected_climate.split(" - ")[0]
+                            climate_code = ''.join([c for c in climate_code if c.isalnum()])
+                            current_climate_filter = [climate_code]
+                        
+                        # Get scale options with counts filtered by current climate
+                        scale_options_with_counts = query_scale_options_with_counts(
+                            conn, 
+                            actual_criteria, 
+                            actual_method, 
+                            selected_direction,  # Use selected direction
+                            current_climate_filter  # Pass current climate filter
+                        )
+                        
+                        if scale_options_with_counts:
+                            # Initialize selected_scale in session state if not exists
+                            if 'admin_selected_scale' not in st.session_state:
+                                st.session_state.admin_selected_scale = "All"
+                            
+                            # Create options with counts
+                            scale_options_formatted = ["All"] + [f"{scale} [{count}]" for scale, count in scale_options_with_counts]
+                            
+                            # Find the current index - preserve selection if it exists in new options
+                            current_scale = st.session_state.admin_selected_scale
+                            current_index = 0  # Default to "All"
+                            
+                            # Check if current selection exists in the new filtered options
+                            if current_scale != "All":
+                                # Extract just the scale name from the formatted option
+                                if " [" in current_scale:
+                                    current_scale_name = current_scale.split(" [")[0]
+                                else:
+                                    current_scale_name = current_scale
+                                
+                                # Look for this scale in the new options
+                                for i, option in enumerate(scale_options_formatted):
+                                    if option.startswith(current_scale_name + " [") or option == current_scale:
+                                        current_index = i
+                                        break
+                                else:
+                                    # If current selection not found, reset to "All"
+                                    st.session_state.admin_selected_scale = "All"
+                                    current_index = 0
+                            else:
+                                current_index = 0
+                            
+                            selected_scale = st.selectbox(
+                                "Filter by Scale",
+                                options=scale_options_formatted,
+                                index=current_index,
+                                key="admin_scale_filter"
+                            )
+                            
+                            # Update session state only if selection actually changed
+                            if selected_scale != st.session_state.admin_selected_scale:
+                                st.session_state.admin_selected_scale = selected_scale
+                                # Trigger rerun to update the other filter
+                                st.rerun()
+                            
+                            # Extract just the scale name for filtering (remove count)
+                            if selected_scale != "All":
+                                scale_name = selected_scale.split(" [")[0]
+                                selected_scales = [scale_name]
+                            else:
+                                selected_scales = None
+                        else:
+                            st.info("No scale data available for current selection")
+                            selected_scales = None
+                            st.session_state.admin_selected_scale = "All"
+                    else:
+                        st.info("No scale data")
+                        selected_scales = None
+
+                with col_climate:
+                    # Climate filter - with dynamic counts based on current search AND scale filter
+                    if climate_options:
+                        # Get current scale selection for climate counts
+                        current_scale_filter = []
+                        if 'admin_selected_scale' in st.session_state and st.session_state.admin_selected_scale != "All":
+                            scale_name = st.session_state.admin_selected_scale.split(" [")[0]
+                            current_scale_filter = [scale_name]
+                        
+                        # Get climate options with counts filtered by current scale
+                        climate_options_with_counts = query_climate_options_with_counts(
+                            conn, 
+                            actual_criteria, 
+                            actual_method, 
+                            selected_direction,  # Use selected direction
+                            current_scale_filter  # Pass current scale filter
+                        )
+                        
+                        if climate_options_with_counts:
+                            # Initialize selected_climate in session state if not exists
+                            if 'admin_selected_climate' not in st.session_state:
+                                st.session_state.admin_selected_climate = "All"
+                            
+                            # Create options with colored display and counts
+                            climate_options_formatted = ["All"] + [formatted for formatted, color, count in climate_options_with_counts]
+                            
+                            # Find the current index - preserve selection if it exists in new options
+                            current_climate = st.session_state.admin_selected_climate
+                            current_index = 0  # Default to "All"
+                            
+                            # Check if current selection exists in the new filtered options
+                            if current_climate != "All":
+                                # Extract just the climate code from the formatted option
+                                if " - " in current_climate:
+                                    current_climate_code = current_climate.split(" - ")[0]
+                                    # Remove emoji if present
+                                    current_climate_code = ''.join([c for c in current_climate_code if c.isalnum()])
+                                else:
+                                    current_climate_code = current_climate
+                                
+                                # Look for this climate in the new options
+                                for i, option in enumerate(climate_options_formatted):
+                                    option_code = option.split(" - ")[0]
+                                    option_code = ''.join([c for c in option_code if c.isalnum()])
+                                    if option_code == current_climate_code:
+                                        current_index = i
+                                        break
+                                else:
+                                    # If current selection not found, reset to "All"
+                                    st.session_state.admin_selected_climate = "All"
+                                    current_index = 0
+                            else:
+                                current_index = 0
+                            
+                            selected_climate = st.selectbox(
+                                "Filter by Climate",
+                                options=climate_options_formatted,
+                                index=current_index,
+                                key="admin_climate_filter"
+                            )
+                            
+                            # Update session state only if selection actually changed
+                            if selected_climate != st.session_state.admin_selected_climate:
+                                st.session_state.admin_selected_climate = selected_climate
+                                # Trigger rerun to update the other filter
+                                st.rerun()
+                            
+                            # Extract just the climate code for filtering
+                            if selected_climate != "All":
+                                # Remove the emoji, description, and count to get just the climate code
+                                climate_code = selected_climate.split(" - ")[0]
+                                # Remove any emoji characters and count
+                                climate_code = ''.join([c for c in climate_code if c.isalnum()])
+                                selected_climates = [climate_code]
+                            else:
+                                selected_climates = None
+                        else:
+                            st.info("No climate data available for current selection")
+                            selected_climates = None
+                            st.session_state.admin_selected_climate = "All"
+                    else:
+                        st.info("No climate data available")
+                        selected_climates = None
+
+    # Filter records in memory (only when all required selections are made)
     filtered_records = records
     if actual_criteria:
         filtered_records = [r for r in filtered_records if r[1] == actual_criteria]
-    if actual_method:
+    if actual_method:  # Now this variable is always defined
         filtered_records = [r for r in filtered_records if r[2] == actual_method]
+    if selected_direction:
+        clean_direction = selected_direction.split(" [")[0] if selected_direction else None
+        filtered_records = [r for r in filtered_records if r[3] == clean_direction]
     if selected_scales:
         filtered_records = [r for r in filtered_records if r[7] in selected_scales]
     if selected_climates:
         filtered_records = [r for r in filtered_records if r[8] in selected_climates]
 
+    # Only show results when we have the basic selections
+    if actual_criteria and actual_method and selected_direction:
+        st.write(f"**Showing {len(filtered_records)} approved records**")
+    else:
+        st.write("**Please select a determinant, energy output, and direction to see records**")
+        filtered_records = []
     
-    st.write(f"**Showing {len(filtered_records)} approved records**")
-    
-# Show data source info
+    # [Rest of the function remains the same - display records, etc.]
+    # Show data source info
     with st.expander("📊 Data Source Info", expanded=False):
         # Handle scale options format
         if scale_options:
@@ -2330,6 +2385,7 @@ def manage_scale_climate_data():
     else:
         display_records = filtered_records
     
+    # DISPLAY RESULTS - Show study content directly in text fields
     for record in display_records:
         record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location = record
         
@@ -2362,29 +2418,50 @@ def manage_scale_climate_data():
                 new_energy_method = st.text_input("Energy Output", value=energy_method, key=f"admin_energy_method_{record_id}")
                 
                 # Direction
-                new_direction = st.radio("Direction", direction_options, 
-                                    index=direction_options.index(direction) if direction in direction_options else 0,
+                new_direction = st.radio("Direction", ["Increase", "Decrease"], 
+                                    index=0 if direction == "Increase" else 1,
                                     key=f"admin_direction_{record_id}", horizontal=True)
             
             with col2:
                 # Scale - Dynamic dropdown from imported data
                 st.write("**Scale:**")
+                # Create a simple list of scale options
+                simple_scale_options = []
+                for opt in scale_options:
+                    if isinstance(opt, tuple):
+                        simple_scale_options.append(opt[0])  # Use the scale name
+                    else:
+                        simple_scale_options.append(opt)
+                
+                scale_index = 0
+                if scale in simple_scale_options:
+                    scale_index = simple_scale_options.index(scale) + 1
+                
                 new_scale = st.selectbox(
                     "Select Scale",
-                    options=[""] + scale_options,
-                    index=scale_options.index(scale) + 1 if scale in scale_options else 0,
+                    options=[""] + simple_scale_options,
+                    index=scale_index,
                     key=f"admin_scale_{record_id}"
                 )
                 
                 # Climate - Dynamic dropdown with color coding
                 st.write("**Climate:**")
+                # Create a simple list of climate options without formatting for the dropdown
+                simple_climate_options = []
+                for opt in climate_options:
+                    if isinstance(opt, tuple):
+                        if len(opt) >= 2:
+                            simple_climate_options.append(opt[0])  # Use the raw climate code
+                    else:
+                        simple_climate_options.append(opt)
+                
                 climate_index = 0
-                if climate in climate_options:
-                    climate_index = climate_options.index(climate) + 1
+                if climate in simple_climate_options:
+                    climate_index = simple_climate_options.index(climate) + 1
                 
                 selected_climate = st.selectbox(
                     "Select Climate",
-                    options=[""] + climate_options,
+                    options=[""] + simple_climate_options,
                     index=climate_index,
                     key=f"admin_climate_{record_id}"
                 )
@@ -2395,16 +2472,15 @@ def manage_scale_climate_data():
                     color = get_climate_color(selected_climate)
                     st.markdown(f"<span style='background-color: {color}; padding: 4px 12px; border-radius: 12px; color: black; font-weight: bold;'>{selected_climate}</span>", unsafe_allow_html=True)
                 
-                # Location and Scale
+                # Location
                 new_location = st.text_input("Location", value=location or "", key=f"admin_location_{record_id}")
-                new_scale = st.text_input("Scale", value=scale or "", key=f"admin_scale_{record_id}")
                 
                 # Status
                 new_status = st.selectbox("Status", status_options,
                                         index=status_options.index(status) if status in status_options else 0,
                                         key=f"admin_status_{record_id}")
             
-            # Paragraph content (larger area)
+            # Paragraph content (larger area) - ALWAYS VISIBLE
             st.write("**Study Content:**")
             new_paragraph = st.text_area("Content", value=paragraph, height=150, key=f"admin_paragraph_{record_id}")
             
@@ -2413,28 +2489,27 @@ def manage_scale_climate_data():
             with col_save:
                 if st.button("💾 Save This Record", key=f"admin_save_single_{record_id}", use_container_width=True, type="primary"):
                     # Save individual record to database
-                    conn = sqlite3.connect("my_database.db")
-                    cursor = conn.cursor()
-                    
-                    cursor.execute('''
-                        UPDATE energy_data 
-                        SET criteria = ?, energy_method = ?, direction = ?, paragraph = ?, 
-                            scale = ?, climate = ?, location = ?, scale = ?, status = ?
-                        WHERE id = ?
-                    ''', (
-                        new_criteria,
-                        new_energy_method, 
-                        new_direction,
-                        new_paragraph,
-                        new_scale,
-                        new_climate,
-                        new_location,
-                        new_status,
-                        record_id
-                    ))
-                    
-                    conn.commit()
-                    conn.close()
+                    with get_db_connection() as conn_edit:
+                        cursor_edit = conn_edit.cursor()
+                        
+                        cursor_edit.execute('''
+                            UPDATE energy_data 
+                            SET criteria = ?, energy_method = ?, direction = ?, paragraph = ?, 
+                                scale = ?, climate = ?, location = ?, status = ?
+                            WHERE id = ?
+                        ''', (
+                            new_criteria,
+                            new_energy_method, 
+                            new_direction,
+                            new_paragraph,
+                            new_scale,
+                            new_climate,
+                            new_location,
+                            new_status,
+                            record_id
+                        ))
+                        
+                        conn_edit.commit()
                     
                     st.session_state[f"admin_full_edit_{record_id}"] = False
                     st.success(f"✅ Record {record_id} updated successfully!")
@@ -2447,7 +2522,7 @@ def manage_scale_climate_data():
                     st.rerun()
                     
         else:
-            # View Mode - Display only
+            # View Mode - Display all information clearly
             col1, col2 = st.columns(2)
             
             with col1:
@@ -2460,34 +2535,33 @@ def manage_scale_climate_data():
             with col2:
                 st.write(f"**Scale:** {scale}")
                 
-            if climate:
-                # Handle different climate option formats for display
-                formatted_climate_display = climate
-                if climate_options and isinstance(climate_options[0], tuple):
-                    # Try to find the formatted version from climate_options
-                    for option in climate_options:
-                        if len(option) == 3:
-                            formatted, color_option, count = option
-                        else:
-                            formatted, color_option = option
-                            
-                        # Check if this formatted option matches our climate
-                        climate_code_from_formatted = formatted.split(" - ")[0]
-                        # Remove emoji to get just the code
-                        climate_code_clean = ''.join([c for c in climate_code_from_formatted if c.isalnum()])
-                        if climate_code_clean == climate:
-                            formatted_climate_display = formatted
-                            break
-                
-                color = get_climate_color(climate)
-                st.markdown(f"**Climate:** <span style='background-color: {color}; padding: 2px 8px; border-radius: 10px; color: black;'>{formatted_climate_display}</span>", unsafe_allow_html=True)
-
+                if climate:
+                    # Handle different climate option formats for display
+                    formatted_climate_display = climate
+                    if climate_options and isinstance(climate_options[0], tuple):
+                        # Try to find the formatted version from climate_options
+                        for option in climate_options:
+                            if len(option) == 3:
+                                formatted, color_option, count = option
+                            else:
+                                formatted, color_option = option
+                                
+                            # Check if this formatted option matches our climate
+                            climate_code_from_formatted = formatted.split(" - ")[0]
+                            # Remove emoji to get just the code
+                            climate_code_clean = ''.join([c for c in climate_code_from_formatted if c.isalnum()])
+                            if climate_code_clean == climate:
+                                formatted_climate_display = formatted
+                                break
+                    
+                    color = get_climate_color(climate)
+                    st.markdown(f"**Climate:** <span style='background-color: {color}; padding: 2px 8px; border-radius: 10px; color: black;'>{formatted_climate_display}</span>", unsafe_allow_html=True)
 
                 st.write(f"**Status:** {status}")
             
-            # Study content preview
-            with st.expander("View Study Content", expanded=False):
-                st.text_area("Content", value=paragraph, height=100, key=f"admin_view_content_{record_id}", disabled=True)
+            # Study content - ALWAYS VISIBLE, not in expander
+           # st.write("**Study Content:**")
+            st.text_area("Study content:", value=paragraph, height=150, key=f"admin_view_content_{record_id}", disabled=True)
     
     # Quick actions
     st.markdown("---")
@@ -3180,433 +3254,350 @@ if "user_role" not in st.session_state:
 
 #  main App section - CLEAN VERSION ################################################
 
-def render_main_tab():
+def query_direction_counts(conn, selected_criteria, selected_method):
+    """Get direction counts for specific criteria and method"""
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT direction, COUNT(paragraph) as count
+        FROM energy_data
+        WHERE criteria = ? AND energy_method = ? AND paragraph IS NOT NULL AND paragraph != '' AND paragraph != '0' AND paragraph != '0.0' AND status NOT IN ("pending", "rejected")
+        GROUP BY direction
+    ''', (selected_criteria, selected_method))
+    return dict(cursor.fetchall())
+
+def render_unified_search_interface(enable_editing=False):
+    """Unified search interface used by both main app and admin"""
     global conn
-    # """Render the main SpatialBuild Energy tab content"""
-    st.title("Welcome to SpatialBuild Energy")
-    welcome_html = ("""<h7>This tool distills insights from over 200 studies on building energy consumption across meso and macro scales, spanning neighborhood, urban, state, regional, national, and global levels. It maps more than 100 factors influencing energy use, showing whether each increases or decreases energy outputs like total consumption, energy use intensity, or heating demand. Designed for urban planners and policymakers, the tool provides insights to craft smarter energy reduction strategies.</p><p><h7>"""
-    )
-    st.markdown(welcome_html, unsafe_allow_html=True)
+    cursor = conn.cursor()
+    
+    # Get dynamic options from database
+    try:
+        scale_options = query_scale_options_with_counts(conn)
+        climate_options = query_climate_options_with_counts(conn)
+    except Exception as e:
+        st.warning("Some filter data is not available yet. Please import location and climate data first.")
+        scale_options = []
+        climate_options = []
 
-    how_it_works_html = ("""
-    1. Pick Your Focus: Choose the determinant you want to explore.<br>
-    2. Select Energy Outputs: For example energy use intensity or heating demand from our database.<br>
-    3. Filter the Results by the direction of the relationship (e.g., increases or decreases), and access the relevant studies with the links provided."""
-    )
-    st.markdown(how_it_works_html, unsafe_allow_html=True)
+    # Get counts for determinants
+    cursor.execute('''
+        SELECT criteria, COUNT(paragraph) as count
+        FROM energy_data
+        WHERE paragraph IS NOT NULL 
+          AND paragraph != '' 
+          AND paragraph != '0' 
+          AND paragraph != '0.0'
+          AND paragraph != 'None'
+          AND LENGTH(TRIM(paragraph)) > 0
+          AND status NOT IN ("pending", "rejected")
+        GROUP BY criteria
+    ''')
+    criteria_counts = dict(cursor.fetchall())
+    
+    # Get all approved records for display
+    cursor.execute('''
+        SELECT id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location
+        FROM energy_data 
+        WHERE status NOT IN ("pending", "rejected")
+          AND paragraph IS NOT NULL 
+          AND paragraph != '' 
+          AND paragraph != '0' 
+          AND paragraph != '0.0'
+          AND paragraph != 'None'
+          AND LENGTH(TRIM(paragraph)) > 0
+        ORDER BY criteria, energy_method, id
+    ''')
+    records = cursor.fetchall()
 
-    # Initialize session state for selections
-    if 'selected_criteria_with_count' not in st.session_state:
-        st.session_state.selected_criteria_with_count = None
-    if 'selected_direction_with_count' not in st.session_state:
-        st.session_state.selected_direction_with_count = None
-    if 'selected_energy_method_with_count' not in st.session_state:
-        st.session_state.selected_energy_method_with_count = None    
+    # Filter options with proper counts
+    criteria_list = ["Select a determinant"] + [f"{criteria} [{count}]" for criteria, count in criteria_counts.items()]
+    
+    # Initialize filter variables
+    selected_scales = []
+    selected_climates = []
+    selected_direction = None
+    actual_method = None
 
-    # Criteria Dropdown with Counts and Placeholder
-    criteria_counts = query_criteria_counts(conn)
-    criteria_list = ["Select a determinant"] + [f"{row[0]} [{row[1]}]" for row in criteria_counts]
-    selected_criteria_with_count = st.selectbox(
-        "Determinant",
-        criteria_list,
-        index=0 if st.session_state.selected_criteria_with_count is None else criteria_list.index(f"{st.session_state.selected_criteria_with_count} [{[count for crit, count in criteria_counts if crit == st.session_state.selected_criteria][0]}]"),
-        format_func=lambda x: x if x == "Select a determinant" else x,
-        key="main_determinant_select"  # Unique key
-    )
+    # UNIFIED FILTER LAYOUT - Same as admin but without "All" options
+    # Step 1: Determinant dropdown - full width
+    selected_criteria = st.selectbox("Determinant", criteria_list, key="unified_criteria")
+    actual_criteria = selected_criteria.split(" [")[0] if selected_criteria != "Select a determinant" else None
+    
+    # Step 2: Energy Output dropdown - full width (only if determinant is selected)
+    if actual_criteria:
+        energy_method_counts = query_energy_method_counts(conn, actual_criteria)
+        method_list = ["Select an output"] + [f"{method} [{count}]" for method, count in energy_method_counts]
+        
+        selected_method = st.selectbox("Energy Output(s)", method_list, key="unified_method")
+        actual_method = selected_method.split(" [")[0] if selected_method != "Select an output" else None
+        
+        # Step 3: Direction radio buttons - full width (only if both determinant and method are selected)
+        if actual_method:
+            direction_counts = query_direction_counts(conn, actual_criteria, actual_method)
+            increase_count = direction_counts.get("Increase", 0)
+            decrease_count = direction_counts.get("Decrease", 0)
 
-    if selected_criteria_with_count != "Select a determinant":
-        new_criteria = selected_criteria_with_count.split(" [")[0]
-        if new_criteria != st.session_state.selected_criteria:
-            st.session_state.selected_criteria = new_criteria
-            st.session_state.selected_method = None
-            st.rerun()
-
-        # Energy Method Dropdown with Counts and Placeholder
-        energy_method_counts = query_energy_method_counts(conn, st.session_state.selected_criteria)
-        method_list = ["Select an output"] + [f"{row[0]} [{row[1]}]" for row in energy_method_counts]
-
-        selected_method_with_count = st.selectbox(
-            "Energy Output(s)",
-            method_list,
-            index=0 if st.session_state.selected_method is None else method_list.index(f"{st.session_state.selected_method} [{[count for meth, count in energy_method_counts if meth == st.session_state.selected_method][0]}]"),
-            format_func=lambda x: x if x == "Select an output" else x,
-            key="main_output_select"  # Unique key
-        )
-
-        if selected_method_with_count != "Select an output":
-            st.session_state.selected_method = selected_method_with_count.split(" [")[0]
+            selected_direction = st.radio(
+                "Please select the direction of the relationship",
+                [f"Increase [{increase_count}]", f"Decrease [{decrease_count}]"],
+                index=None,
+                key="unified_direction"
+            )
             
-            # Query function to get the count for each direction
-            def query_direction_counts(conn, selected_criteria, selected_method):
-                cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT direction, COUNT(paragraph) as count
-                    FROM energy_data
-                    WHERE criteria = ? AND energy_method = ? AND paragraph IS NOT NULL AND paragraph != '' AND paragraph != '0' AND paragraph != '0.0' AND status NOT IN ("pending", "rejected")
-                    GROUP BY direction
-                ''', (selected_criteria, selected_method))
-                return dict(cursor.fetchall())
-
-            # Reset selected_direction when criteria or method changes
-            new_criteria = selected_criteria_with_count.split(" [")[0] if selected_criteria_with_count != "Select a determinant" else None
-            new_method = selected_method_with_count.split(" [")[0] if selected_method_with_count != "Select an output" else None
-
-            # Reset selected_direction and rerun if criteria or method has changed
-            if new_criteria != st.session_state.get("selected_criteria"):
-                st.session_state.selected_criteria = new_criteria
-                st.session_state.selected_method = None
-                st.rerun()
-            elif new_method != st.session_state.get("selected_method"):
-                st.session_state.selected_method = new_method
-                st.rerun()
-
-            # Ensure criteria and method are selected before showing the direction choice
-            if st.session_state.selected_method:
-                # Fetch counts for each direction
-                direction_counts = query_direction_counts(conn, st.session_state.selected_criteria, st.session_state.selected_method)
-                increase_count = direction_counts.get("Increase", 0)
-                decrease_count = direction_counts.get("Decrease", 0)
-
-                # Display radio buttons with counts, without default selection
-                selected_direction = st.radio(
-                    "Please select the direction of the relationship",
-                    [f"Increase [{increase_count}]", f"Decrease [{decrease_count}]"],
-                    index=None,  # No preselection
-                    key="main_direction_radio"  # Unique key
-                )
-
-            # NEW SIMPLIFIED FILTERS - Only Scale and Dominant Climate
-            if st.session_state.selected_method and selected_direction:
-                # Get available options with error handling
-                try:
-                    scale_options = query_scale_options(conn)
-                    dominant_climate_options = query_dominant_climate_options(conn)
-                except Exception as e:
-                    st.warning("Some filter data is not available yet. Please import location and climate data first.")
-                    scale_options = []
-                    dominant_climate_options = []
-
-                # Filter out "Awaiting data" from scale options
-                scale_options = [option for option in scale_options if option != "Awaiting data"]
-
-                # Create columns for filters
-                col1, col2 = st.columns(2)
-
-                # In the filter section of render_main_tab(), replace the scale and climate filter sections:
-
-# In the filter section of render_main_tab(), update both filter sections:
-
-                with col1:
-                    # Scale filter - with dynamic counts based on current search AND climate filter
-                    if (st.session_state.selected_criteria and 
-                        st.session_state.selected_criteria != "Select a determinant" and
-                        st.session_state.selected_method and 
-                        st.session_state.selected_method != "Select an output" and
-                        selected_direction):
-                        
-                        # Get current climate selection for scale counts
+            # Step 4: Scale and Climate filters in 2 columns (only when direction is selected)
+            if selected_direction:
+                col_scale, col_climate = st.columns(2)
+                
+                with col_scale:
+                    # Scale filter
+                    if scale_options:
                         current_climate_filter = []
-                        if 'selected_climate' in st.session_state and st.session_state.selected_climate != "All":
-                            climate_code = st.session_state.selected_climate.split(" - ")[0]
+                        if 'unified_selected_climate' in st.session_state and st.session_state.unified_selected_climate != "All":
+                            climate_code = st.session_state.unified_selected_climate.split(" - ")[0]
                             climate_code = ''.join([c for c in climate_code if c.isalnum()])
                             current_climate_filter = [climate_code]
                         
                         scale_options_with_counts = query_scale_options_with_counts(
-                            conn, 
-                            st.session_state.selected_criteria, 
-                            st.session_state.selected_method, 
-                            selected_direction,
-                            current_climate_filter  # Pass current climate filter
+                            conn, actual_criteria, actual_method, selected_direction, current_climate_filter
                         )
                         
                         if scale_options_with_counts:
-                            # Initialize selected_scale in session state if not exists
-                            if 'selected_scale' not in st.session_state:
-                                st.session_state.selected_scale = "All"
+                            if 'unified_selected_scale' not in st.session_state:
+                                st.session_state.unified_selected_scale = "All"
                             
-                            # Create options with counts
                             scale_options_formatted = ["All"] + [f"{scale} [{count}]" for scale, count in scale_options_with_counts]
                             
-                            # Find the current index - handle case where current selection might not be in filtered options
-                            current_scale = st.session_state.selected_scale
-                            if current_scale in scale_options_formatted:
-                                current_index = scale_options_formatted.index(current_scale)
-                            else:
-                                # If current selection is not available in filtered options, reset to "All"
-                                current_index = 0
-                                st.session_state.selected_scale = "All"
+                            # Smart index calculation (same as admin)
+                            current_scale = st.session_state.unified_selected_scale
+                            current_index = 0
+                            if current_scale != "All":
+                                if " [" in current_scale:
+                                    current_scale_name = current_scale.split(" [")[0]
+                                else:
+                                    current_scale_name = current_scale
+                                
+                                for i, option in enumerate(scale_options_formatted):
+                                    if option.startswith(current_scale_name + " [") or option == current_scale:
+                                        current_index = i
+                                        break
+                                else:
+                                    st.session_state.unified_selected_scale = "All"
+                                    current_index = 0
                             
                             selected_scale = st.selectbox(
                                 "Filter by Scale",
                                 options=scale_options_formatted,
                                 index=current_index,
-                                key="scale_select"
+                                key="unified_scale"
                             )
                             
-                            # Update session state only if selection actually changed
-                            if selected_scale != st.session_state.selected_scale:
-                                st.session_state.selected_scale = selected_scale
-                                # Don't rerun here - let both filters update before rerunning
-                                # We'll handle the rerun logic differently
+                            if selected_scale != st.session_state.unified_selected_scale:
+                                st.session_state.unified_selected_scale = selected_scale
+                                st.rerun()
                             
-                            # Extract just the scale name for filtering (remove count)
                             if selected_scale != "All":
                                 scale_name = selected_scale.split(" [")[0]
                                 selected_scales = [scale_name]
-                            else:
-                                selected_scales = None
-                        else:
-                            st.info("No scale data available for current selection")
-                            selected_scales = None
-                            # Reset scale selection if no options available
-                            st.session_state.selected_scale = "All"
                     else:
-                        st.info("Select determinant, output and direction first")
-                        selected_scales = None
-                        # Reset filters if basic selections aren't made
-                        st.session_state.selected_scale = "All"
-                        st.session_state.selected_climate = "All"
+                        st.info("No scale data available")
 
-                with col2:
-                    # Climate filter - with dynamic counts based on current search AND scale filter
-                    if (st.session_state.selected_criteria and 
-                        st.session_state.selected_criteria != "Select a determinant" and
-                        st.session_state.selected_method and 
-                        st.session_state.selected_method != "Select an output" and
-                        selected_direction):
-                        
-                        # Get current scale selection for climate counts
+                with col_climate:
+                    # Climate filter
+                    if climate_options:
                         current_scale_filter = []
-                        if 'selected_scale' in st.session_state and st.session_state.selected_scale != "All":
-                            scale_name = st.session_state.selected_scale.split(" [")[0]
+                        if 'unified_selected_scale' in st.session_state and st.session_state.unified_selected_scale != "All":
+                            scale_name = st.session_state.unified_selected_scale.split(" [")[0]
                             current_scale_filter = [scale_name]
                         
                         climate_options_with_counts = query_climate_options_with_counts(
-                            conn, 
-                            st.session_state.selected_criteria, 
-                            st.session_state.selected_method, 
-                            selected_direction,
-                            current_scale_filter  # Pass current scale filter
+                            conn, actual_criteria, actual_method, selected_direction, current_scale_filter
                         )
                         
                         if climate_options_with_counts:
-                            # Initialize selected_climate in session state if not exists
-                            if 'selected_climate' not in st.session_state:
-                                st.session_state.selected_climate = "All"
+                            if 'unified_selected_climate' not in st.session_state:
+                                st.session_state.unified_selected_climate = "All"
                             
-                            # Create options with colored display and counts
                             climate_options_formatted = ["All"] + [formatted for formatted, color, count in climate_options_with_counts]
                             
-                            # Find the current index - handle case where current selection might not be in filtered options
-                            current_climate = st.session_state.selected_climate
-                            if current_climate in climate_options_formatted:
-                                current_index = climate_options_formatted.index(current_climate)
-                            else:
-                                # If current selection is not available in filtered options, reset to "All"
-                                current_index = 0
-                                st.session_state.selected_climate = "All"
+                            # Smart index calculation (same as admin)
+                            current_climate = st.session_state.unified_selected_climate
+                            current_index = 0
+                            if current_climate != "All":
+                                if " - " in current_climate:
+                                    current_climate_code = current_climate.split(" - ")[0]
+                                    current_climate_code = ''.join([c for c in current_climate_code if c.isalnum()])
+                                else:
+                                    current_climate_code = current_climate
+                                
+                                for i, option in enumerate(climate_options_formatted):
+                                    option_code = option.split(" - ")[0]
+                                    option_code = ''.join([c for c in option_code if c.isalnum()])
+                                    if option_code == current_climate_code:
+                                        current_index = i
+                                        break
+                                else:
+                                    st.session_state.unified_selected_climate = "All"
+                                    current_index = 0
                             
                             selected_climate = st.selectbox(
                                 "Filter by Climate",
                                 options=climate_options_formatted,
                                 index=current_index,
-                                key="climate_select_simple"
+                                key="unified_climate"
                             )
                             
-                            # Update session state only if selection actually changed
-                            if selected_climate != st.session_state.selected_climate:
-                                st.session_state.selected_climate = selected_climate
-                                # Don't rerun here - let both filters update before rerunning
-                            
-                            # Extract just the climate code for filtering
-                            if selected_climate != "All":
-                                # Remove the emoji, description, and count to get just the climate code
-                                climate_code = selected_climate.split(" - ")[0]
-                                # Remove any emoji characters and count
-                                climate_code = ''.join([c for c in climate_code if c.isalnum()])
-                                selected_dominant_climates = [climate_code]
-                            else:
-                                selected_dominant_climates = None
-                        else:
-                            st.info("No climate data available for current selection")
-                            selected_dominant_climates = None
-                            # Reset climate selection if no options available
-                            st.session_state.selected_climate = "All"
-                    else:
-                        st.info("Select determinant, output and direction first")
-                        selected_dominant_climates = None
-                        # Reset filters if basic selections aren't made
-                        st.session_state.selected_scale = "All"
-                        st.session_state.selected_climate = "All"
-
-                # Add a single rerun trigger after both filters have been processed
-                # Check if we need to rerun due to filter changes
-                if 'last_scale_selection' not in st.session_state:
-                    st.session_state.last_scale_selection = st.session_state.get('selected_scale', "All")
-                if 'last_climate_selection' not in st.session_state:
-                    st.session_state.last_climate_selection = st.session_state.get('selected_climate', "All")
-
-                current_scale = st.session_state.get('selected_scale', "All")
-                current_climate = st.session_state.get('selected_climate', "All")
-
-                # If either filter changed, update the last values and rerun
-                if (current_scale != st.session_state.last_scale_selection or 
-                    current_climate != st.session_state.last_climate_selection):
-                    
-                    st.session_state.last_scale_selection = current_scale
-                    st.session_state.last_climate_selection = current_climate
-                    st.rerun()
-
-                    #logic for scale
-                    paragraphs = []
-
-                # Only query if we have all required selections
-                if (st.session_state.selected_criteria and 
-                    st.session_state.selected_method and 
-                    selected_direction):
-                    
-                    # Extract just the direction without the count
-                    clean_direction = selected_direction.split(" [")[0] if selected_direction else None
-                    
-                    # Apply "All" logic for scale
-                    if selected_scales and "All" in selected_scales:
-                        selected_scales = None
-                    
-                    # Query paragraphs with simplified filters
-                    paragraphs = query_paragraphs(
-                        conn, 
-                        st.session_state.selected_criteria, 
-                        st.session_state.selected_method, 
-                        clean_direction,
-                        selected_scales,           # Scale filter
-                        selected_dominant_climates # Dominant climate only
-                    )
-                
-                # Display results or warning
-                if paragraphs:
-                    if len(paragraphs) == 1:
-                        st.markdown(f"<p><b>The following study shows that an increase (or presence) in {st.session_state.selected_criteria} leads to <i>{'higher' if selected_direction == 'Increase' else 'lower'}</i> {st.session_state.selected_method}.</b></p>", unsafe_allow_html=True)
-                    else:
-                        st.markdown(f"<p><b>The following studies show that an increase (or presence) in {st.session_state.selected_criteria} leads to <i>{'higher' if selected_direction == 'Increase' else 'lower'}</i> {st.session_state.selected_method}.</b></p>", unsafe_allow_html=True)
-
-                    for count, (para_id, para_text) in enumerate(paragraphs, start=1):
-                        if st.session_state.user_role == "admin":
-                            new_text = st.text_area(f"Edit text for record {para_id}", value=para_text, key=f"main_edit_{para_id}")
-                            col1, col2 = st.columns([1, 4])
-                            with col1:
-                                if st.button("Save changes", key=f"main_save_btn_{para_id}"):
-                                    admin_actions(conn, para_id, new_text=new_text)
-                                    st.rerun()
-                            with col2:
-                                if st.session_state.get(f"main_confirm_delete_{para_id}", False):
-                                    st.warning(f"Are you sure you want to delete record {para_id}?")
-                                    col_yes, col_no = st.columns(2)
-                                    with col_yes:
-                                        if st.button("Yes", key=f"main_confirm_yes_{para_id}"):
-                                            admin_actions(conn, para_id, delete=True)
-                                            st.session_state[f"main_confirm_delete_{para_id}"] = False
-                                            st.rerun()
-                                    with col_no:
-                                        if st.button("Cancel", key=f"main_confirm_no_{para_id}"):
-                                            st.session_state[f"main_confirm_delete_{para_id}"] = False
-                                            st.rerun()
-                                else:
-                                    if st.button("Delete", key=f"main_delete_btn_{para_id}"):
-                                        st.session_state[f"main_confirm_delete_{para_id}"] = True
-                                        st.rerun()
-                        else:
-                            st.markdown(f"**Result {count}:**<br>{para_text}", unsafe_allow_html=True)
-                else:
-                    st.warning(f"No studies have been reported for an increase (or presence) in {st.session_state.selected_criteria} leading to {'higher' if selected_direction == 'Increase' else 'lower'} {st.session_state.selected_method}.")
-
-                # Add New Record Section
-                if st.session_state.logged_in and selected_direction is not None:
-                    if not st.session_state.get("show_new_record_form", False):
-                        if st.button("Add New Record", key="main_add_new_record"):
-                            st.session_state.show_new_record_form = True
-
-                    if st.session_state.get("show_new_record_form", False):
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            # Scale selection
-                            scale_options = query_dynamic_scale_options(conn)
-                            selected_scale = st.selectbox(
-                                "Scale",
-                                options=["Select scale"] + scale_options + ["Add new scale"],
-                                key="main_new_record_scale"
-                            )
-                            
-                            # Add new scale if selected
-                            new_scale = ""
-                            if selected_scale == "Add new scale":
-                                new_scale = st.text_input("Enter new scale", key="main_new_scale_input")
-                        
-                        with col2:
-                            # Climate selection
-                            climate_options_data = query_dominant_climate_options(conn)
-                            climate_options = [formatted for formatted, color in climate_options_data]
-                            selected_climate = st.selectbox(
-                                "Climate",
-                                options=["Select climate"] + climate_options + ["Add new climate"],
-                                key="main_new_record_climate"
-                            )
-                            
-                            # Add new climate if selected
-                            new_climate = ""
-                            if selected_climate == "Add new climate":
-                                new_climate = st.text_input("Enter new climate code (e.g., Cfa, BWh)", key="main_new_climate_input")
-                        
-                        # Study content
-                        new_paragraph = st.text_area(
-                            f"Study content for {st.session_state.selected_criteria} and {st.session_state.selected_method} ({selected_direction})",
-                            key="main_new_paragraph",
-                            height=150,
-                            placeholder="Enter the study content, findings, or reference here..."
-                        )
-                        
-                        # Location (optional)
-                        location = st.text_input("Location (optional)", key="main_new_record_location", 
-                                                placeholder="e.g., United States, Europe, Urban area")
-                        
-                        if st.button("Save", key="main_save_new_record"):
-                            if new_paragraph.strip() and selected_direction:
-                                # Prepare scale and climate values
-                                final_scale = new_scale if selected_scale == "Add new scale" else selected_scale
-                                final_climate = new_climate if selected_climate == "Add new climate" else selected_climate
-                                
-                                # Clean climate code if it's formatted
-                                if final_climate and " - " in final_climate:
-                                    final_climate = final_climate.split(" - ")[0]
-                                    # Remove emoji if present
-                                    final_climate = ''.join([c for c in final_climate if c.isalnum()])
-                                
-                                cursor = conn.cursor()
-                                cursor.execute('''
-                                    INSERT INTO energy_data (criteria, energy_method, direction, paragraph, status, user, scale, climate, location)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                ''', (
-                                    st.session_state.selected_criteria, 
-                                    st.session_state.selected_method, 
-                                    selected_direction.split(" [")[0],  # Clean direction
-                                    new_paragraph, 
-                                    "pending", 
-                                    st.session_state.current_user,
-                                    final_scale if final_scale != "Select scale" else "Awaiting data",
-                                    final_climate if final_climate != "Select climate" else "Awaiting data",
-                                    location if location else None
-                                ))
-                                conn.commit()
-                                st.success("New record submitted successfully. Status: pending verification")
-                                
-                                st.session_state.show_new_record_form = False
-                                time.sleep(2)                                  
+                            if selected_climate != st.session_state.unified_selected_climate:
+                                st.session_state.unified_selected_climate = selected_climate
                                 st.rerun()
-                            else:
-                                st.warning("Please ensure the study content is not empty before saving.")
+                            
+                            if selected_climate != "All":
+                                climate_code = selected_climate.split(" - ")[0]
+                                climate_code = ''.join([c for c in climate_code if c.isalnum()])
+                                selected_climates = [climate_code]
+                    else:
+                        st.info("No climate data available")
 
-                # st.image("bubblechart_placeholder.png")
-                # st.caption("Bubble chart visualizing studied determinants, energy outputs, and the direction of their relationships based on the literature.")
+    # Filter records
+    filtered_records = records
+    if actual_criteria:
+        filtered_records = [r for r in filtered_records if r[1] == actual_criteria]
+    if actual_method:
+        filtered_records = [r for r in filtered_records if r[2] == actual_method]
+    if selected_direction:
+        clean_direction = selected_direction.split(" [")[0] if selected_direction else None
+        filtered_records = [r for r in filtered_records if r[3] == clean_direction]
+    if selected_scales:
+        filtered_records = [r for r in filtered_records if r[7] in selected_scales]
+    if selected_climates:
+        filtered_records = [r for r in filtered_records if r[8] in selected_climates]
+
+    # Display results
+    if actual_criteria and actual_method and selected_direction:
+        if len(filtered_records) == 1:
+            st.markdown(f"<p><b>The following study shows that an increase (or presence) in {actual_criteria} leads to <i>{'higher' if 'Increase' in selected_direction else 'lower'}</i> {actual_method}.</b></p>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<p><b>The following studies show that an increase (or presence) in {actual_criteria} leads to <i>{'higher' if 'Increase' in selected_direction else 'lower'}</i> {actual_method}.</b></p>", unsafe_allow_html=True)
+
+        for count, record in enumerate(filtered_records, start=1):
+            record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location = record
+            
+            st.markdown("---")
+            
+            # Display record information (same clean layout as admin)
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write(f"**Determinant:** {criteria}")
+                st.write(f"**Energy Output:** {energy_method}")
+                st.write(f"**Direction:** {direction}")
+                if location:
+                    st.write(f"**Location:** {location}")
+            
+            with col2:
+                st.write(f"**Scale:** {scale}")
+                if climate:
+                    formatted_climate_display = climate
+                    if climate_options and isinstance(climate_options[0], tuple):
+                        for option in climate_options:
+                            if len(option) == 3:
+                                formatted, color_option, count_opt = option
+                            else:
+                                formatted, color_option = option
+                            climate_code_from_formatted = formatted.split(" - ")[0]
+                            climate_code_clean = ''.join([c for c in climate_code_from_formatted if c.isalnum()])
+                            if climate_code_clean == climate:
+                                formatted_climate_display = formatted
+                                break
+                    
+                    color = get_climate_color(climate)
+                    st.markdown(f"**Climate:** <span style='background-color: {color}; padding: 2px 8px; border-radius: 10px; color: black;'>{formatted_climate_display}</span>", unsafe_allow_html=True)
+
+            # Study content - always visible
+            #st.write("**Study Content:**")
+            st.text_area("Study content:", value=paragraph, height=150, key=f"content_{record_id}", disabled=True)
+            
+            # Only show edit buttons for admin users
+            if enable_editing and st.session_state.user_role == "admin":
+                if st.button("✏️ Edit Record", key=f"edit_btn_{record_id}", use_container_width=True):
+                    st.session_state[f"edit_record_{record_id}"] = True
+                    st.rerun()
+    
+    elif actual_criteria or actual_method or selected_direction:
+        st.warning("Please select a determinant, energy output, and direction to see results")
+    else:
+        st.info("Use the filters above to explore the database")
+
+# # Updated main app layout
+# # Remove the entire render_main_tab() function and replace it with this:
+
+#     def render_spatialbuild_tab(enable_editing=False):
+#         """Render the main SpatialBuild Energy tab with welcome message and search"""
+#         st.title("Welcome to SpatialBuild Energy")
+#         welcome_html = ("""<h7>This tool distills insights from over 200 studies on building energy consumption across meso and macro scales, spanning neighborhood, urban, state, regional, national, and global levels. It maps more than 100 factors influencing energy use, showing whether each increases or decreases energy outputs like total consumption, energy use intensity, or heating demand. Designed for urban planners and policymakers, the tool provides insights to craft smarter energy reduction strategies.</p><p><h7>"""
+#         )
+#         st.markdown(welcome_html, unsafe_allow_html=True)
+
+#         how_it_works_html = ("""
+#         1. Pick Your Focus: Choose the determinant you want to explore.<br>
+#         2. Select Energy Outputs: For example energy use intensity or heating demand from our database.<br>
+#         3. Filter the Results by the direction of the relationship (e.g., increases or decreases), and access the relevant studies with the links provided."""
+#         )
+#         st.markdown(how_it_works_html, unsafe_allow_html=True)
+        
+#         render_unified_search_interface(enable_editing=enable_editing)
+
+#     # Then update the MAIN APP LAYOUT section at the bottom:
+#     # MAIN APP LAYOUT - CLEAN AND ORGANIZED
+#     if st.session_state.logged_in:
+#         if st.session_state.current_user == "admin":
+#             # Admin view
+#             tab_labels = ["SpatialBuild Energy", "Contribute", "Edit/Review"]
+#             tabs = st.tabs(tab_labels)
+#             tab0, tab1, tab2 = tabs
+            
+#             with tab0:
+#                 render_spatialbuild_tab(enable_editing=True)
+            
+#             with tab1:
+#                 render_contribute_tab()
+            
+#             with tab2:
+#                 admin_dashboard()
+            
+#             render_admin_sidebar()
+
+#         else:  
+#             # Regular user view
+#             tab_labels = ["SpatialBuild Energy", "Contribute", "Your Contributions"]
+#             tabs = st.tabs(tab_labels)
+#             tab0, tab1, tab2 = tabs
+            
+#             with tab0:
+#                 render_spatialbuild_tab(enable_editing=False)
+            
+#             with tab1:
+#                 render_contribute_tab()
+            
+#             with tab2:
+#                 user_dashboard()
+            
+#             render_user_sidebar()
+
+#     else:  
+#         # Not logged in view
+#         tab_labels = ["SpatialBuild Energy", "Contribute"]
+#         tabs = st.tabs(tab_labels)
+#         tab0, tab1 = tabs
+        
+#         with tab0:
+#             render_spatialbuild_tab(enable_editing=False)
+        
+#         with tab1:
+#             render_contribute_tab()
+        
+#         render_guest_sidebar()
+#                 # st.image("bubblechart_placeholder.png")
+#                 # st.caption("Bubble chart visualizing studied determinants, energy outputs, and the direction of their relationships based on the literature.")
 
 
 def render_contribute_tab():
@@ -3700,6 +3691,25 @@ def render_guest_sidebar():
     guest_info = "Log in or sign up to contribute to our database of energy studies and help build sustainable cities."
     st.sidebar.write(guest_info, unsafe_allow_html=True)
 
+
+# ADD this simple function instead:
+def render_spatialbuild_tab(enable_editing=False):
+    """Render the main SpatialBuild Energy tab with welcome message and search"""
+    st.title("Welcome to SpatialBuild Energy")
+    welcome_html = ("""<h7>This tool distills insights from over 200 studies on building energy consumption across meso and macro scales, spanning neighborhood, urban, state, regional, national, and global levels. It maps more than 100 factors influencing energy use, showing whether each increases or decreases energy outputs like total consumption, energy use intensity, or heating demand. Designed for urban planners and policymakers, the tool provides insights to craft smarter energy reduction strategies.</p><p><h7>"""
+    )
+    st.markdown(welcome_html, unsafe_allow_html=True)
+
+    how_it_works_html = ("""
+    1. Pick Your Focus: Choose the determinant you want to explore.<br>
+    2. Select Energy Outputs: For example energy use intensity or heating demand from our database.<br>
+    3. Filter the Results by the direction of the relationship (e.g., increases or decreases), and access the relevant studies with the links provided."""
+    )
+    st.markdown(how_it_works_html, unsafe_allow_html=True)
+    
+    render_unified_search_interface(enable_editing=enable_editing)
+
+# Then UPDATE your main app layout at the bottom to this:
 # MAIN APP LAYOUT - CLEAN AND ORGANIZED
 if st.session_state.logged_in:
     if st.session_state.current_user == "admin":
@@ -3709,7 +3719,7 @@ if st.session_state.logged_in:
         tab0, tab1, tab2 = tabs
         
         with tab0:
-            render_main_tab()
+            render_spatialbuild_tab(enable_editing=True)
         
         with tab1:
             render_contribute_tab()
@@ -3726,7 +3736,7 @@ if st.session_state.logged_in:
         tab0, tab1, tab2 = tabs
         
         with tab0:
-            render_main_tab()
+            render_spatialbuild_tab(enable_editing=False)
         
         with tab1:
             render_contribute_tab()
@@ -3743,7 +3753,7 @@ else:
     tab0, tab1 = tabs
     
     with tab0:
-        render_main_tab()
+        render_spatialbuild_tab(enable_editing=False)
     
     with tab1:
         render_contribute_tab()
