@@ -43,7 +43,11 @@ if "uploaded_excel_file" not in st.session_state:
 if "current_excel_df" not in st.session_state:
     st.session_state.current_excel_df = None
 if "selected_quality_filter" not in st.session_state:
-    st.session_state.selected_quality_filter = ["exact_match", "strong_match", "strong_match_90pct", "good_match"]    
+    st.session_state.selected_quality_filter = ["exact_match", "strong_match", "strong_match_90pct", "good_match"]
+
+# ADD THIS FOR EDIT FUNCTIONALITY:
+if "admin_editing_record_id" not in st.session_state:
+    st.session_state.admin_editing_record_id = None    
 
 def check_database_health():
     """Check if the database is healthy and not corrupted"""
@@ -800,10 +804,9 @@ def convert_urls_to_links(text):
     
     return text
 
-def display_study_content(paragraph, record_id, sample_size=None):
-    """
-    Display study content with clickable links
-    """
+def display_study_content(paragraph, record_id):
+    """Simple display of study content"""
+    st.text_area(f"Study Content", value=paragraph, height=150, key=f"content_{record_id}", disabled=True)
     # Convert URLs to clickable links
     paragraph_with_links = convert_urls_to_links(paragraph)
     
@@ -2457,6 +2460,8 @@ def process_confirmed_matches(confirmed_matches, excel_df):
     
 
 def manage_scale_climate_data():
+    if "admin_editing_record_id" not in st.session_state:
+        st.session_state.admin_editing_record_id = None
     global conn
     st.subheader("Edit Records - Full Record Management")
     cursor = conn.cursor()
@@ -2514,15 +2519,16 @@ def manage_scale_climate_data():
     
     # Get all approved records for display - EXCLUDE EMPTY/ZERO RECORDS
     cursor.execute('''
-        SELECT id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location
+        SELECT id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, 
+            building_use, approach, sample_size
         FROM energy_data 
         WHERE status NOT IN ("pending", "rejected")
-          AND paragraph IS NOT NULL 
-          AND paragraph != '' 
-          AND paragraph != '0' 
-          AND paragraph != '0.0'
-          AND paragraph != 'None'
-          AND LENGTH(TRIM(paragraph)) > 0
+        AND paragraph IS NOT NULL 
+        AND paragraph != '' 
+        AND paragraph != '0' 
+        AND paragraph != '0.0'
+        AND paragraph != 'None'
+        AND LENGTH(TRIM(paragraph)) > 0
         ORDER BY criteria, energy_method, id
     ''')
     records = cursor.fetchall()
@@ -2817,9 +2823,12 @@ def manage_scale_climate_data():
     
     # DISPLAY RESULTS - Show study content directly in text fields
     for record in display_records:
-        record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location = record
+        record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
         
         st.markdown("---")
+
+        # Check if this record is being edited
+        is_editing = st.session_state.admin_editing_record_id == record_id
         
         # Header with Edit/Save buttons
         col_header1, col_header2 = st.columns([3, 1])
@@ -2836,140 +2845,176 @@ def manage_scale_climate_data():
                     st.rerun()
         
         # Display/Edit all fields
-        if st.session_state.get(f"admin_full_edit_{record_id}"):
-            # Edit Mode - All fields editable
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                # Determinant (free text input for flexibility)
-                new_criteria = st.text_input("Determinant", value=criteria, key=f"admin_criteria_{record_id}")
+                   # Display/Edit all fields
+            if st.session_state.get(f"admin_full_edit_{record_id}"):
+                # Edit Mode - All fields editable
+                col1, col2 = st.columns(2)
                 
-                # Energy Output (free text input for flexibility)
-                new_energy_method = st.text_input("Energy Output", value=energy_method, key=f"admin_energy_method_{record_id}")
-                
-                # Direction
-                new_direction = st.radio("Direction", ["Increase", "Decrease"], 
-                                    index=0 if direction == "Increase" else 1,
-                                    key=f"admin_direction_{record_id}", horizontal=True)
-            
-            # In the display section of manage_scale_climate_data()
-            with col2:
-                st.write(f"**Scale:** {scale}")
-                
-                if climate:
-                    # Handle different climate option formats for display
-                    formatted_climate_display = climate
-                    if climate_options and isinstance(climate_options[0], tuple):
-                        # Try to find the formatted version from climate_options
-                        for option in climate_options:
-                            if len(option) == 3:
-                                formatted, color_option, count = option
-                            else:
-                                formatted, color_option = option
-                                
-                            # Check if this formatted option matches our climate
-                            climate_code_from_formatted = formatted.split(" - ")[0]
-                            # Remove emoji to get just the code
-                            climate_code_clean = ''.join([c for c in climate_code_from_formatted if c.isalnum()])
-                            if climate_code_clean.upper() == climate.upper():
-                                formatted_climate_display = formatted
-                                break
+                with col1:
+                    # Determinant (free text input for flexibility)
+                    new_criteria = st.text_input("Determinant", value=criteria, key=f"admin_criteria_{record_id}")
                     
-                    color = get_climate_color(climate)
-                    st.markdown(f"**Climate:** <span style='background-color: {color}; padding: 2px 8px; border-radius: 10px; color: black;'>{formatted_climate_display}</span>", unsafe_allow_html=True)
-
-                if location:
-                    st.write(f"**Location:** {location}")
-                if building_use:
-                    st.write(f"**Building Use:** {building_use}")
-                if approach:
-                    st.write(f"**Approach:** {approach}")
-                if sample_size:
-                    st.write(f"**Sample Size:** {sample_size}")
-                st.write(f"**Status:** {status}")
-            
-            # Paragraph content (larger area) - ALWAYS VISIBLE
-            st.write("**Study Content:**")
-            new_paragraph = st.text_area("Content", value=paragraph, height=150, key=f"admin_paragraph_{record_id}")
-            
-            # Save and Cancel buttons for individual record
-            col_save, col_cancel = st.columns(2)
-            with col_save:
-                if st.button("💾 Save This Record", key=f"admin_save_single_{record_id}", use_container_width=True, type="primary"):
-                    # Save individual record to database
-                    with get_db_connection() as conn_edit:
-                        cursor_edit = conn_edit.cursor()
+                    # Energy Output (free text input for flexibility)
+                    new_energy_method = st.text_input("Energy Output", value=energy_method, key=f"admin_energy_method_{record_id}")
+                    
+                    # Direction
+                    new_direction = st.radio("Direction", ["Increase", "Decrease"], 
+                                        index=0 if direction == "Increase" else 1,
+                                        key=f"admin_direction_{record_id}", horizontal=True)
+                    
+                    # Scale (editable)
+                    scale_options_list = ["Select scale"] + query_dynamic_scale_options(conn) + ["Add new scale"]
+                    selected_scale = st.selectbox("Scale", 
+                                                options=scale_options_list,
+                                                index=scale_options_list.index(scale) if scale in scale_options_list else 0,
+                                                key=f"admin_scale_{record_id}")
+                    
+                    new_scale = ""
+                    if selected_scale == "Add new scale":
+                        new_scale = st.text_input("Enter new scale", key=f"admin_new_scale_{record_id}")
+                    
+                    # Location (editable)
+                    new_location = st.text_input("Location", value=location if location else "", 
+                                               key=f"admin_location_{record_id}")
+                
+                with col2:
+                    # Climate (editable)
+                    climate_options_list = ["Select climate"] + [formatted for formatted, color in query_dominant_climate_options(conn)] + ["Add new climate"]
+                    
+                    # Find current climate in options
+                    current_climate_index = 0
+                    for i, opt in enumerate(climate_options_list):
+                        if climate and climate in opt:
+                            current_climate_index = i
+                            break
+                    
+                    selected_climate = st.selectbox("Climate", 
+                                                  options=climate_options_list,
+                                                  index=current_climate_index,
+                                                  key=f"admin_climate_{record_id}")
+                    
+                    new_climate = ""
+                    if selected_climate == "Add new climate":
+                        new_climate = st.text_input("Enter new climate code", key=f"admin_new_climate_{record_id}")
+                    
+                    # Building Use (editable)
+                    new_building_use = st.text_input("Building Use", value=building_use if building_use else "", 
+                                                   key=f"admin_building_use_{record_id}")
+                    
+                    # Approach (editable)
+                    new_approach = st.text_input("Approach", value=approach if approach else "", 
+                                               key=f"admin_approach_{record_id}")
+                    
+                    # Sample Size (editable)
+                    new_sample_size = st.text_input("Sample Size", value=sample_size if sample_size else "", 
+                                                  key=f"admin_sample_size_{record_id}")
+                    
+                    # Status (editable)
+                    status_options = ["approved", "rejected", "pending"]
+                    new_status = st.selectbox("Status", options=status_options,
+                                           index=status_options.index(status) if status in status_options else 0,
+                                           key=f"admin_status_{record_id}")
+                
+                # Paragraph content (larger area) - ALWAYS VISIBLE
+                st.write("**Study Content:**")
+                new_paragraph = st.text_area("Content", value=paragraph, height=150, key=f"admin_paragraph_{record_id}")
+                
+                # Save and Cancel buttons for individual record
+                col_save, col_cancel = st.columns(2)
+                with col_save:
+                    if st.button("💾 Save This Record", key=f"admin_save_single_{record_id}", use_container_width=True, type="primary"):
+                        # Prepare final values
+                        final_scale = new_scale if selected_scale == "Add new scale" else (selected_scale if selected_scale != "Select scale" else scale)
+                        final_climate = new_climate if selected_climate == "Add new climate" else (selected_climate if selected_climate != "Select climate" else climate)
                         
+                        # Clean climate code if formatted
+                        if final_climate and " - " in str(final_climate):
+                            final_climate = final_climate.split(" - ")[0]
+                            final_climate = ''.join([c for c in final_climate if c.isalnum()])
+                        
+                        # Save individual record to database
+                        cursor_edit = conn.cursor()
                         cursor_edit.execute('''
                             UPDATE energy_data 
                             SET criteria = ?, energy_method = ?, direction = ?, paragraph = ?, 
-                                scale = ?, climate = ?, location = ?, status = ?
+                                scale = ?, climate = ?, location = ?, building_use = ?, approach = ?, 
+                                sample_size = ?, status = ?
                             WHERE id = ?
                         ''', (
                             new_criteria,
                             new_energy_method, 
                             new_direction,
                             new_paragraph,
-                            new_scale,
-                            new_climate,
+                            final_scale,
+                            final_climate,
                             new_location,
+                            new_building_use,
+                            new_approach,
+                            new_sample_size,
                             new_status,
                             record_id
                         ))
                         
-                        conn_edit.commit()
-                    
-                    st.session_state[f"admin_full_edit_{record_id}"] = False
-                    st.success(f"✅ Record {record_id} updated successfully!")
-                    time.sleep(1)
-                    st.rerun()
-            
-            with col_cancel:
-                if st.button("❌ Cancel Edit", key=f"admin_cancel_single_{record_id}", use_container_width=True):
-                    st.session_state[f"admin_full_edit_{record_id}"] = False
-                    st.rerun()
-                    
-        else:
-            # View Mode - Display all information clearly
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.write(f"**Determinant:** {criteria}")
-                st.write(f"**Energy Output:** {energy_method}")
-                st.write(f"**Direction:** {direction}")
-                if location:
-                    st.write(f"**Location:** {location}")
-            
-            with col2:
-                st.write(f"**Scale:** {scale}")
+                        conn.commit()
+                        
+                        st.session_state[f"admin_full_edit_{record_id}"] = False
+                        st.success(f"✅ Record {record_id} updated successfully!")
+                        time.sleep(1)
+                        st.rerun()
                 
-                if climate:
-                    # Handle different climate option formats for display
-                    formatted_climate_display = climate
-                    if climate_options and isinstance(climate_options[0], tuple):
-                        # Try to find the formatted version from climate_options
-                        for option in climate_options:
-                            if len(option) == 3:
-                                formatted, color_option, count = option
-                            else:
-                                formatted, color_option = option
-                                
-                            # Check if this formatted option matches our climate
-                            climate_code_from_formatted = formatted.split(" - ")[0]
-                            # Remove emoji to get just the code
-                            climate_code_clean = ''.join([c for c in climate_code_from_formatted if c.isalnum()])
-                            if climate_code_clean == climate:
-                                formatted_climate_display = formatted
-                                break
+                with col_cancel:
+                    if st.button("❌ Cancel Edit", key=f"admin_cancel_single_{record_id}", use_container_width=True):
+                        st.session_state[f"admin_full_edit_{record_id}"] = False
+                        st.rerun()
+                        
+            else:
+                # View Mode - Display all information clearly
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write(f"**Determinant:** {criteria}")
+                    st.write(f"**Energy Output:** {energy_method}")
+                    st.write(f"**Direction:** {direction}")
+                    if location:
+                        st.write(f"**Location:** {location}")
+                    if building_use:
+                        st.write(f"**Building Use:** {building_use}")
+                    if approach:
+                        st.write(f"**Approach:** {approach}")
+                    if sample_size:
+                        st.write(f"**Sample Size:** {sample_size}")
+                
+                with col2:
+                    st.write(f"**Scale:** {scale}")
                     
-                    color = get_climate_color(climate)
-                    st.markdown(f"**Climate:** <span style='background-color: {color}; padding: 2px 8px; border-radius: 10px; color: black;'>{formatted_climate_display}</span>", unsafe_allow_html=True)
+                    if climate:
+                        # Handle different climate option formats for display
+                        formatted_climate_display = climate
+                        if climate_options and isinstance(climate_options[0], tuple):
+                            # Try to find the formatted version from climate_options
+                            for option in climate_options:
+                                if len(option) == 3:
+                                    formatted, color_option, count = option
+                                else:
+                                    formatted, color_option = option
+                                    
+                                # Check if this formatted option matches our climate
+                                climate_code_from_formatted = formatted.split(" - ")[0]
+                                # Remove emoji to get just the code
+                                climate_code_clean = ''.join([c for c in climate_code_from_formatted if c.isalnum()])
+                                if climate_code_clean.upper() == climate.upper():
+                                    formatted_climate_display = formatted
+                                    break
+                        
+                        color = get_climate_color(climate)
+                        st.markdown(f"**Climate:** <span style='background-color: {color}; padding: 2px 8px; border-radius: 10px; color: black;'>{formatted_climate_display}</span>", unsafe_allow_html=True)
 
-                st.write(f"**Status:** {status}")
-            
-            # Study content - ALWAYS VISIBLE, not in expander
-            # st.write("**Study Content:**")
-            display_study_content(paragraph, record_id)
+                    st.write(f"**Status:** {status}")
+                    st.write(f"**Submitted by:** {user}")
+                
+                # Study content - ALWAYS VISIBLE, not in expander
+                st.write("**Study Content:**")
+                display_study_content(paragraph, record_id)
 
     
     # Quick actions
@@ -2980,22 +3025,237 @@ def manage_scale_climate_data():
             st.rerun()
     with col2:
         if st.button("📊 Show Statistics", key="admin_stats_edit", use_container_width=True):
-            awaiting_scale = len([r for r in records if r[7] in ["Awaiting data", "Not Specified", ""] or not r[7]])
-            awaiting_climate = len([r for r in records if r[8] in ["Awaiting data", "Not Specified", ""] or not r[8]])
+            # Calculate statistics
+            awaiting_scale = len([r for r in records if r[7] in ["Awaiting data", "Not Specified", "", None] or not r[7]])
+            awaiting_climate = len([r for r in records if r[8] in ["Awaiting data", "Not Specified", "", None] or not r[8]])
+            awaiting_location = len([r for r in records if r[9] in ["", None] or not r[9]])
+            awaiting_building_use = len([r for r in records if r[10] in ["", None] or not r[10]])
+            awaiting_approach = len([r for r in records if r[11] in ["", None] or not r[11]])
+            awaiting_sample_size = len([r for r in records if r[12] in ["", None] or not r[12]])
             total_records = len(records)
+            
+            # Display statistics
             st.info(f"""
             **Database Statistics:**
             - Total approved records: {total_records}
             - Records needing scale data: {awaiting_scale}
             - Records needing climate data: {awaiting_climate}
+            - Records needing location data: {awaiting_location}
+            - Records needing building use data: {awaiting_building_use}
+            - Records needing approach data: {awaiting_approach}
+            - Records needing sample size data: {awaiting_sample_size}
             - Unique scale types: {len(scale_options)}
             - Unique climate types: {len(climate_options)}
             """)
-    with col3:
-        if st.button("🔍 View Table Schema", key="admin_schema_view", use_container_width=True):
-            st.info("**Current Table Columns:**")
-            for col_name in column_names:
-                st.write(f"- {col_name}")
+            
+            # NEW: Show records with missing data
+            st.subheader("🔍 Records with Missing Data")
+            
+            # Create tabs for different types of missing data
+            missing_tabs = st.tabs(["Scale", "Climate", "Location", "Building Use", "Approach", "Sample Size"])
+            
+            with missing_tabs[0]:
+                # Records missing scale data
+                missing_scale = [r for r in records if r[7] in ["Awaiting data", "Not Specified", "", None] or not r[7]]
+                if missing_scale:
+                    st.write(f"**{len(missing_scale)} records missing scale data:**")
+                    for record in missing_scale[:20]:  # Show first 20
+                        record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
+                        with st.expander(f"Record {record_id}: {criteria} → {energy_method} ({direction})"):
+                            st.write(f"**Current Scale:** {scale if scale else 'Empty'}")
+                            st.write(f"**Climate:** {climate if climate else 'Empty'}")
+                            st.write(f"**Location:** {location if location else 'Empty'}")
+                            
+                            # Quick edit button
+                            if st.button(f"✏️ Edit Record {record_id}", key=f"quick_edit_scale_{record_id}"):
+                                st.session_state[f"admin_full_edit_{record_id}"] = True
+                                st.rerun()
+                    
+                    if len(missing_scale) > 20:
+                        st.write(f"... and {len(missing_scale) - 20} more records")
+                else:
+                    st.success("✅ All records have scale data!")
+            
+            with missing_tabs[1]:
+                # Records missing climate data
+                missing_climate = [r for r in records if r[8] in ["Awaiting data", "Not Specified", "", None] or not r[8]]
+                if missing_climate:
+                    st.write(f"**{len(missing_climate)} records missing climate data:**")
+                    for record in missing_climate[:20]:
+                        record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
+                        with st.expander(f"Record {record_id}: {criteria} → {energy_method} ({direction})"):
+                            st.write(f"**Scale:** {scale if scale else 'Empty'}")
+                            st.write(f"**Current Climate:** {climate if climate else 'Empty'}")
+                            st.write(f"**Location:** {location if location else 'Empty'}")
+                            
+                            if st.button(f"✏️ Edit Record {record_id}", key=f"quick_edit_climate_{record_id}"):
+                                st.session_state[f"admin_full_edit_{record_id}"] = True
+                                st.rerun()
+                    
+                    if len(missing_climate) > 20:
+                        st.write(f"... and {len(missing_climate) - 20} more records")
+                else:
+                    st.success("✅ All records have climate data!")
+            
+            with missing_tabs[2]:
+                # Records missing location data
+                missing_location = [r for r in records if r[9] in ["", None] or not r[9]]
+                if missing_location:
+                    st.write(f"**{len(missing_location)} records missing location data:**")
+                    for record in missing_location[:20]:
+                        record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
+                        with st.expander(f"Record {record_id}: {criteria} → {energy_method} ({direction})"):
+                            st.write(f"**Scale:** {scale if scale else 'Empty'}")
+                            st.write(f"**Climate:** {climate if climate else 'Empty'}")
+                            st.write(f"**Current Location:** {location if location else 'Empty'}")
+                            
+                            if st.button(f"✏️ Edit Record {record_id}", key=f"quick_edit_location_{record_id}"):
+                                st.session_state[f"admin_full_edit_{record_id}"] = True
+                                st.rerun()
+                    
+                    if len(missing_location) > 20:
+                        st.write(f"... and {len(missing_location) - 20} more records")
+                else:
+                    st.success("✅ All records have location data!")
+            
+            with missing_tabs[3]:
+                # Records missing building use data
+                missing_building_use = [r for r in records if r[10] in ["", None] or not r[10]]
+                if missing_building_use:
+                    st.write(f"**{len(missing_building_use)} records missing building use data:**")
+                    for record in missing_building_use[:20]:
+                        record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
+                        with st.expander(f"Record {record_id}: {criteria} → {energy_method} ({direction})"):
+                            st.write(f"**Location:** {location if location else 'Empty'}")
+                            st.write(f"**Current Building Use:** {building_use if building_use else 'Empty'}")
+                            
+                            if st.button(f"✏️ Edit Record {record_id}", key=f"quick_edit_building_use_{record_id}"):
+                                st.session_state[f"admin_full_edit_{record_id}"] = True
+                                st.rerun()
+                    
+                    if len(missing_building_use) > 20:
+                        st.write(f"... and {len(missing_building_use) - 20} more records")
+                else:
+                    st.success("✅ All records have building use data!")
+            
+            with missing_tabs[4]:
+                # Records missing approach data
+                missing_approach = [r for r in records if r[11] in ["", None] or not r[11]]
+                if missing_approach:
+                    st.write(f"**{len(missing_approach)} records missing approach data:**")
+                    for record in missing_approach[:20]:
+                        record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
+                        with st.expander(f"Record {record_id}: {criteria} → {energy_method} ({direction})"):
+                            st.write(f"**Building Use:** {building_use if building_use else 'Empty'}")
+                            st.write(f"**Current Approach:** {approach if approach else 'Empty'}")
+                            
+                            if st.button(f"✏️ Edit Record {record_id}", key=f"quick_edit_approach_{record_id}"):
+                                st.session_state[f"admin_full_edit_{record_id}"] = True
+                                st.rerun()
+                    
+                    if len(missing_approach) > 20:
+                        st.write(f"... and {len(missing_approach) - 20} more records")
+                else:
+                    st.success("✅ All records have approach data!")
+            
+            with missing_tabs[5]:
+                # Records missing sample size data
+                missing_sample_size = [r for r in records if r[12] in ["", None] or not r[12]]
+                if missing_sample_size:
+                    st.write(f"**{len(missing_sample_size)} records missing sample size data:**")
+                    for record in missing_sample_size[:20]:
+                        record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
+                        with st.expander(f"Record {record_id}: {criteria} → {energy_method} ({direction})"):
+                            st.write(f"**Approach:** {approach if approach else 'Empty'}")
+                            st.write(f"**Current Sample Size:** {sample_size if sample_size else 'Empty'}")
+                            
+                            if st.button(f"✏️ Edit Record {record_id}", key=f"quick_edit_sample_size_{record_id}"):
+                                st.session_state[f"admin_full_edit_{record_id}"] = True
+                                st.rerun()
+                    
+                    if len(missing_sample_size) > 20:
+                        st.write(f"... and {len(missing_sample_size) - 20} more records")
+                else:
+                    st.success("✅ All records have sample size data!")
+            
+            # NEW: Show records with multiple missing fields
+            st.subheader("📋 Records with Multiple Missing Fields")
+            
+            # Find records with multiple missing fields
+            records_with_multiple_missing = []
+            for record in records:
+                missing_count = 0
+                missing_fields = []
+                
+                record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
+                
+                if scale in ["Awaiting data", "Not Specified", "", None] or not scale:
+                    missing_count += 1
+                    missing_fields.append("Scale")
+                
+                if climate in ["Awaiting data", "Not Specified", "", None] or not climate:
+                    missing_count += 1
+                    missing_fields.append("Climate")
+                
+                if location in ["", None] or not location:
+                    missing_count += 1
+                    missing_fields.append("Location")
+                
+                if building_use in ["", None] or not building_use:
+                    missing_count += 1
+                    missing_fields.append("Building Use")
+                
+                if approach in ["", None] or not approach:
+                    missing_count += 1
+                    missing_fields.append("Approach")
+                
+                if sample_size in ["", None] or not sample_size:
+                    missing_count += 1
+                    missing_fields.append("Sample Size")
+                
+                if missing_count >= 2:  # Records with 2 or more missing fields
+                    records_with_multiple_missing.append({
+                        'record': record,
+                        'missing_count': missing_count,
+                        'missing_fields': missing_fields
+                    })
+            
+            if records_with_multiple_missing:
+                # Sort by number of missing fields (most missing first)
+                records_with_multiple_missing.sort(key=lambda x: x['missing_count'], reverse=True)
+                
+                st.write(f"**{len(records_with_multiple_missing)} records with 2+ missing fields:**")
+                
+                for item in records_with_multiple_missing[:10]:  # Show top 10
+                    record = item['record']
+                    record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
+                    
+                    with st.expander(f"Record {record_id}: {criteria} → {energy_method} ({direction}) - Missing: {', '.join(item['missing_fields'])}"):
+                        col_info, col_action = st.columns([3, 1])
+                        
+                        with col_info:
+                            st.write(f"**Missing Fields ({item['missing_count']}):** {', '.join(item['missing_fields'])}")
+                            st.write(f"**Scale:** {scale if scale else '❌ Missing'}")
+                            st.write(f"**Climate:** {climate if climate else '❌ Missing'}")
+                            st.write(f"**Location:** {location if location else '❌ Missing'}")
+                            st.write(f"**Building Use:** {building_use if building_use else '❌ Missing'}")
+                            st.write(f"**Approach:** {approach if approach else '❌ Missing'}")
+                            st.write(f"**Sample Size:** {sample_size if sample_size else '❌ Missing'}")
+                        
+                        with col_action:
+                            if st.button(f"✏️ Edit", key=f"multi_edit_{record_id}", use_container_width=True):
+                                st.session_state[f"admin_full_edit_{record_id}"] = True
+                                st.rerun()
+                
+                if len(records_with_multiple_missing) > 10:
+                    st.write(f"... and {len(records_with_multiple_missing) - 10} more records")
+            else:
+                st.success("🎉 No records with multiple missing fields!")
+        with col3:
+            if st.button("🔍 View Table Schema", key="admin_schema_view", use_container_width=True):
+                st.info("**Current Table Columns:**")
+                for col_name in column_names:
+                    st.write(f"- {col_name}")
 
 
 def review_pending_data():
@@ -4326,7 +4586,7 @@ def render_unified_search_interface(enable_editing=False):
                     st.write(f"**Sample Size:** {sample_size}")
 
             # Study content - always visible
-            display_study_content(paragraph, record_id, sample_size)
+            display_study_content(paragraph, record_id)
             
             # Only show edit buttons for admin users
             if enable_editing and st.session_state.user_role == "admin":
