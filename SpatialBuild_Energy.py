@@ -4270,7 +4270,7 @@ def render_unified_search_interface(enable_editing=False):
                     st.write(f"**Sample Size:** {sample_size}")
 
             # Study content - always visible
-            st.text_area("Study content:", value=paragraph, height=150, key=f"content_{record_id}", disabled=True)
+            st.text_area("Study content:", value=paragraph, height=150, key=f"content_{record_id}", disabled=0)
             
             # Only show edit buttons for admin users
             if enable_editing and st.session_state.user_role == "admin":
