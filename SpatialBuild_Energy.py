@@ -771,6 +771,63 @@ def preprocess_study_name(study_name):
     
     return clean_name
 
+def convert_urls_to_links(text):
+    """
+    Convert URLs in text to clickable HTML links
+    Includes: http/https URLs, www URLs, doi.org links, and DOI numbers
+    """
+    if not text:
+        return text
+    
+    # Replace newlines with HTML line breaks
+    text = text.replace('\n', '<br>')
+    
+    # URL patterns to match
+    patterns = [
+        # Standard http/https URLs
+        (r'(https?://\S+)', r'<a href="\1" target="_blank" style="color: #0066cc; text-decoration: none;">\1</a>'),
+        # www URLs (without http)
+        (r'\b(www\.\S+)\b', r'<a href="http://\1" target="_blank" style="color: #0066cc; text-decoration: none;">\1</a>'),
+        # doi.org links
+       # (r'\b(doi\.org/\S+)\b', r'<a href="https://\1" target="_blank" style="color: #0066cc; text-decoration: none;">\1</a>'),
+        # DOI numbers (10.xxx/xxx)
+      #  (r'\b(10\.\d{4,9}/[-._;()/:A-Z0-9]+)\b', r'<a href="https://doi.org/\1" target="_blank" style="color: #0066cc; text-decoration: none;">\1</a>')
+    ]
+    
+    # Apply each pattern
+    for pattern, replacement in patterns:
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    
+    return text
+
+def display_study_content(paragraph, record_id, sample_size=None):
+    """
+    Display study content with clickable links
+    """
+    # Convert URLs to clickable links
+    paragraph_with_links = convert_urls_to_links(paragraph)
+    
+    # Display in a styled container
+    st.markdown(
+        f'''
+        <div style="
+            border: 1px solid #e0e0e0;
+            padding: 15px;
+            border-radius: 8px;
+            background-color: #f8f9fa;
+            max-height: 250px;
+            overflow-y: auto;
+            font-family: Arial, sans-serif;
+            line-height: 1.5;
+            font-size: 14px;
+        ">
+            {paragraph_with_links}
+        </div>
+        ''',
+        unsafe_allow_html=True
+    )
+    
+
 def find_study_matches_by_title(cursor, clean_study, original_study):
     """Find matches using multiple title-based strategies"""
     matches = []
@@ -1590,6 +1647,7 @@ def find_similar_studies(unmatched_studies):
             similar_groups.append(group)
     
     return similar_groups
+
 
 def display_similar_studies(similar_groups):
     """Display groups of similar unmatched studies"""
@@ -2911,10 +2969,8 @@ def manage_scale_climate_data():
             
             # Study content - ALWAYS VISIBLE, not in expander
             # st.write("**Study Content:**")
-            st.text_area("Study content:", value=paragraph, height=150, key=f"admin_view_content_{record_id}", disabled=True)
-            # NEW: Sample Size field beneath the paragraph
-            if sample_size and str(sample_size).strip() != '':
-                st.write(f"**Sample Size:** {sample_size}")
+            display_study_content(paragraph, record_id)
+
     
     # Quick actions
     st.markdown("---")
@@ -4270,7 +4326,7 @@ def render_unified_search_interface(enable_editing=False):
                     st.write(f"**Sample Size:** {sample_size}")
 
             # Study content - always visible
-            st.text_area("Study content:", value=paragraph, height=150, key=f"content_{record_id}", disabled=0)
+            display_study_content(paragraph, record_id, sample_size)
             
             # Only show edit buttons for admin users
             if enable_editing and st.session_state.user_role == "admin":
