@@ -75,58 +75,6 @@ def check_database_health():
         st.sidebar.error(f"❌ Database error: {e}")
         return False
 
-
-def add_scale_climate_columns():
-    global conn
-    cursor = conn.cursor()
-    
-    # Log start of execution
-    print("🔧 add_scale_climate_columns() function called - checking database schema...")
-    st.sidebar.info("🔧 Checking database schema for scale/climate columns...")
-    
-    # Add scale column if it doesn't exist
-    try:
-        cursor.execute("ALTER TABLE energy_data ADD COLUMN scale TEXT DEFAULT 'Awaiting data'")
-        print("✅ Added 'scale' column to energy_data table")
-        st.sidebar.success("✅ Added 'scale' column to energy_data table")
-    except sqlite3.OperationalError as e:
-        if "duplicate column name" in str(e):
-            print("ℹ️ 'scale' column already exists in energy_data table")
-            st.sidebar.info("ℹ️ 'scale' column already exists")
-        else:
-            print(f"⚠️ Unexpected error with scale column: {e}")
-            st.sidebar.warning(f"⚠️ Error with scale column: {e}")
-    
-    # Add climate column if it doesn't exist
-    try:
-        cursor.execute("ALTER TABLE energy_data ADD COLUMN climate TEXT DEFAULT 'Awaiting data'")
-        print("✅ Added 'climate' column to energy_data table")
-        st.sidebar.success("✅ Added 'climate' column to energy_data table")
-    except sqlite3.OperationalError as e:
-        if "duplicate column name" in str(e):
-            print("ℹ️ 'climate' column already exists in energy_data table")
-            st.sidebar.info("ℹ️ 'climate' column already exists")
-        else:
-            print(f"⚠️ Unexpected error with climate column: {e}")
-            st.sidebar.warning(f"⚠️ Error with climate column: {e}")
-    
-    conn.commit()
-    
-    # Verify the current schema
-    cursor.execute("PRAGMA table_info(energy_data)")
-    columns = cursor.fetchall()
-    print("📋 Current energy_data table schema:")
-    st.sidebar.text("📋 Current table columns:")
-    for col in columns:
-        print(f"   - {col[1]} ({col[2]})")
-        st.sidebar.text(f"   - {col[1]} ({col[2]})")
-
-    print("🔧 Database schema check completed")
-    st.sidebar.success("🔧 Database schema check completed")
-
-# Run this function once to add the new columns
-# add_scale_climate_columns() DONE!
-
 def query_approved_criteria(conn):
         cursor = conn.cursor()
         cursor.execute("SELECT DISTINCT criteria FROM energy_data WHERE status NOT IN ('rejected', 'pending')  ORDER BY criteria ASC")
@@ -364,7 +312,7 @@ def import_location_climate_data_unique():
                 possible_study_cols = ['Study', 'study', 'Title', 'title', 'Paper', 'paper']
                 possible_location_cols = ['Location', 'location', 'Site', 'site', 'Region', 'region']
                 possible_climate_cols = ['Climate', 'climate', 'Climate Zone', 'climate_zone']
-                possible_scale_cols = ['Scale', 'scale', 'Scale. (Neighbourhood (rural, urban), Regional, National and State,)']
+                possible_scale_cols = ['Scale', 'scale', 'Scale (Coverage)', 'Scale. (Neighbourhood (rural, urban), Regional, National and State,)']
                 
                 
                 # Find matching columns
@@ -472,7 +420,7 @@ def import_location_climate_data_unique():
             st.write("Please check the file format and ensure it contains the correct sheet name.")
 
 def reset_location_climate_scale_data():
-    """Clear all climate, and scale data and reset to defaults"""
+    """Clear all climate, Location and scale data and reset to defaults"""
     global conn
     cursor = conn.cursor()
     try:
@@ -484,7 +432,7 @@ def reset_location_climate_scale_data():
         ''')
         
         conn.commit()
-        st.success("✅ All imported data cleared and reset! (Climate, Scale)")
+        st.success("✅ All imported data cleared and reset! (Climate, Location, Scale)")
         
         # Show comprehensive statistics
         
@@ -1863,8 +1811,9 @@ def export_filtered_unmatched(filtered_unmatched):
         key="download_filtered_unmatched"
     )
 
+# Also need to update the process_confirmed_matches function:
 def process_confirmed_matches(confirmed_matches, excel_df):
-    """Process the user-confirmed matches with enhanced climate data handling"""
+    """Process the user-confirmed matches with all data fields"""
     if excel_df is None:
         st.error("❌ No Excel data available for import.")
         return 0
@@ -1898,45 +1847,545 @@ def process_confirmed_matches(confirmed_matches, excel_df):
                 break
         
         if excel_match is not None:
-            # Extract data from Excel row with flexible column names
+            # Extract all data from Excel row with flexible column names
             location = ''
             climate_text = ''
             scale = ''
+            building_use = ''
+            approach = ''
+            sample_size = ''
             
-            # Find location column
+            # Find all columns
             for col in excel_match.index:
-                if 'location' in col.lower() or 'site' in col.lower() or 'region' in col.lower():
+                col_lower = str(col).lower()
+                if 'location' in col_lower or 'site' in col_lower or 'region' in col_lower:
                     location = str(excel_match[col]) if pd.notna(excel_match[col]) else ''
-            
-            # Find climate column - look for 'climate' in column name
-            for col in excel_match.index:
-                if 'climate' in col.lower():
+                elif 'climate' in col_lower:
                     climate_text = str(excel_match[col]) if pd.notna(excel_match[col]) else ''
-                    break  # Use the first climate column found
-            
-            # Find scale column
-            for col in excel_match.index:
-                if 'scale' in col.lower() and 'coverage' not in col.lower():
+                elif 'scale' in col_lower:
                     scale = str(excel_match[col]) if pd.notna(excel_match[col]) else ''
+                elif 'building' in col_lower and ('use' in col_lower or 'type' in col_lower):
+                    building_use = str(excel_match[col]) if pd.notna(excel_match[col]) else ''
+                elif 'approach' in col_lower or 'method' in col_lower:
+                    approach = str(excel_match[col]) if pd.notna(excel_match[col]) else ''
+                elif 'sample' in col_lower or 'n' == col_lower:
+                    sample_size = str(excel_match[col]) if pd.notna(excel_match[col]) else ''
             
-            # Extract dominant climate and multi-climate regions from the climate_text
-            dominant_climate, multi_climates = extract_climate_data(climate_text)
+            # Extract climate code using new function
+def extract_just_climate_code(climate_text):
+    """
+    Extract ONLY the climate code from climate text, preserving ORIGINAL case
+    Format examples:
+    - "Ilam, Iran. | Csa (Mediterranean)" -> "Csa"
+    - "Beijing, china | Dwa (Monsoon-influenced hot-summer humid continental)" -> "Dwa"
+    - "Csa (Mediterranean)" -> "Csa"
+    - "Csa" -> "Csa"
+    - "United Arab Emirates (UAE), Downtown Abu Dhabi | BWh (Hot desert)" -> "BWh"
+    """
+    if not climate_text or pd.isna(climate_text) or str(climate_text).strip() == '':
+        return None
+    
+    climate_text = str(climate_text).strip()
+    
+    # If there's a pipe "|" in the text, take ONLY the part after it
+    if '|' in climate_text:
+        # Split by pipe and take the second part
+        parts = climate_text.split('|')
+        if len(parts) > 1:
+            climate_text = parts[1].strip()
+    
+    # Now extract just the climate code - preserve original case
+    import re
+    
+    # Look for patterns like "Csa (Mediterranean)" or just "Csa"
+    # Match 2-3 letters where first is uppercase, rest can be uppercase or lowercase
+    match = re.search(r'([A-Z][A-Za-z]{1,2})', climate_text)
+    
+    if match:
+        climate_code = match.group(1)
+        # PRESERVE ORIGINAL CASE - don't modify it!
+        return climate_code
+    
+    return None
+
+def add_new_columns_to_database():
+    """Add new columns to the database if they don't exist"""
+    global conn
+    cursor = conn.cursor()
+    
+    print("🔧 Adding new columns to database...")
+    
+    # List of new columns to add
+    new_columns = [
+        ('building_use', 'TEXT'),
+        ('approach', 'TEXT'),
+        ('sample_size', 'TEXT')
+    ]
+    
+    for column_name, column_type in new_columns:
+        try:
+            cursor.execute(f"ALTER TABLE energy_data ADD COLUMN {column_name} {column_type}")
+            print(f"✅ Added '{column_name}' column to energy_data table")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" in str(e):
+                print(f"ℹ️ '{column_name}' column already exists")
+            else:
+                print(f"⚠️ Error with {column_name} column: {e}")
+    
+    conn.commit()
+    print("🔧 Database schema update completed")
+
+# Run this function once to add the new columns
+#add_new_columns_to_database()
+
+def extract_climate_code(climate_text):
+    """
+    Extract just the 3-letter climate code from climate text
+    Format examples:
+    - "Ilam, Iran. | Csa (Mediterranean)" -> "Csa"
+    - "Beijing, china | Dwa (Monsoon-influenced hot-summer humid continental)" -> "Dwa"
+    - "Csa (Mediterranean)" -> "Csa"
+    - "Csa" -> "Csa"
+    """
+    if not climate_text or pd.isna(climate_text) or str(climate_text).strip() == '':
+        return None
+    
+    climate_text = str(climate_text).strip()
+    
+    # If there's a pipe "|" in the text, take the part after it
+    if '|' in climate_text:
+        # Split by pipe and take the second part
+        parts = climate_text.split('|')
+        if len(parts) > 1:
+            climate_text = parts[1].strip()
+    
+    # Now extract just the climate code (first word/letters before space or parenthesis)
+    # Climate codes are typically 3 letters like Csa, Dwa, etc.
+    import re
+    
+    # Look for patterns like "Csa (Mediterranean)" or just "Csa"
+    # Match 2-3 uppercase letters possibly followed by lowercase letters
+    match = re.search(r'([A-Z][A-Za-z]{1,2})', climate_text)
+    
+    if match:
+        climate_code = match.group(1)
+        # Ensure it's uppercase (in case there are lowercase letters)
+        climate_code = climate_code.upper()
+        return climate_code
+    
+    return climate_text  # Return original if no pattern found
+
+def extract_just_climate_code(climate_text):
+    """
+    Extract ONLY the climate code from climate text, preserving original case
+    Format examples:
+    - "Ilam, Iran. | Csa (Mediterranean)" -> "Csa"
+    - "Beijing, china | Dwa (Monsoon-influenced hot-summer humid continental)" -> "Dwa"
+    - "Csa (Mediterranean)" -> "Csa"
+    - "Csa" -> "Csa"
+    - "United Arab Emirates (UAE), Downtown Abu Dhabi | BWh (Hot desert)" -> "BWh"
+    """
+    if not climate_text or pd.isna(climate_text) or str(climate_text).strip() == '':
+        return None
+    
+    climate_text = str(climate_text).strip()
+    
+    # If there's a pipe "|" in the text, take ONLY the part after it
+    if '|' in climate_text:
+        # Split by pipe and take the second part
+        parts = climate_text.split('|')
+        if len(parts) > 1:
+            climate_text = parts[1].strip()
+    
+    # Now extract just the climate code
+    import re
+    
+    # Look for patterns like "Csa (Mediterranean)" or just "Csa"
+    # Match 2-3 letters where first is uppercase, rest can be uppercase or lowercase
+    # Climate codes: Af, Am, Aw, BWh, BWk, BSh, BSk, Cfa, Cfb, Cfc, Csa, Csb, Dfa, Dfb, Dfc, Dfd, ET, EF
+    match = re.search(r'([A-Z][A-Za-z]{1,2})', climate_text)
+    
+    if match:
+        climate_code = match.group(1)
+        # PRESERVE ORIGINAL CASE - don't modify it!
+        return climate_code
+    
+    return None
+
+def import_location_climate_data_unique():
+    global conn
+    st.subheader("Import Location, Climate & Scale Data")
+    
+    # Add reset button section at the top
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.warning("⚠️ **Reset Options**")
+    with col2:
+        if st.button("🗑️ Clear All, Climate, Location and Scale Data", key="clear_location_data_btn", use_container_width=True):
+            reset_location_climate_scale_data()
+    
+    st.markdown("---")
+    
+    # File upload with UNIQUE key
+    uploaded_file = st.file_uploader("Upload Excel file with location/climate data", 
+                                   type=["xlsx", "csv", "ods"],
+                                   key="location_climate_import_unique")
+    
+    if uploaded_file is not None:
+        try:
+            # NEW: Enable matching feature
+            use_matching = st.checkbox("🔍 Enable Automatic Study Matching", value=True, 
+                                     help="Automatically match Excel studies with database records")
             
-            # Convert multi_climates list to string for database storage
-            multi_climate_str = ', '.join(multi_climates) if multi_climates else None
-            st.sidebar.write(f"Record {record_id}: Climate text='{climate_text}' -> Dominant='{dominant_climate}', Multi='{multi_climates}'")
+            if use_matching:
+                # Store the uploaded file in session state so it's available for processing
+                st.session_state.uploaded_excel_file = uploaded_file
+                
+                # Use the enhanced matching import
+                matched, unmatched = admin_import_and_match_studies(uploaded_file)
+
+                # Read the Excel file and store it in session state
+                uploaded_file.seek(0)  # Reset file pointer
+                excel_df = pd.read_excel(uploaded_file, sheet_name=0)
+                st.session_state.current_excel_df = excel_df
+
+                display_admin_matching_review(matched, unmatched, excel_df)
+
+            else:
+                # Use the original import logic
+                df = pd.read_excel(uploaded_file, sheet_name=0)
+                
+                # Clean column names and data
+                df.columns = [str(col).strip() for col in df.columns]
+                
+                # FLEXIBLE COLUMN MAPPING - Handle different column names
+                column_mapping = {}
+                
+                # Map expected column names with flexibility
+                possible_study_cols = ['Study', 'study', 'Title', 'title', 'Paper', 'paper']
+                possible_location_cols = ['Location', 'location', 'Site', 'site', 'Region', 'region']
+                possible_climate_cols = ['Climate', 'climate', 'Climate Zone', 'climate_zone']
+                possible_scale_cols = ['Scale (Coverage)', 'Scale', 'scale', 'Scale. (Neighbourhood (rural, urban), Regional, National and State,)', 'Scale (coverage)']
+                possible_building_use_cols = ['Building Use', 'building_use', 'Building_Use', 'Building Type', 'building_type']
+                possible_approach_cols = ['Approach', 'approach', 'Methodology', 'methodology', 'Method', 'method']
+                possible_sample_size_cols = ['Sample Size', 'sample_size', 'Sample_Size', 'Sample', 'sample', 'N']
+                
+                # Find matching columns
+                for col in df.columns:
+                    col_clean = str(col).strip()
+                    col_lower = col_clean.lower()
+                    
+                    if any(study_col in col_lower for study_col in ['study', 'title', 'paper']):
+                        column_mapping[col] = 'study'
+                    elif any(loc_col in col_lower for loc_col in ['location', 'site', 'region']):
+                        column_mapping[col] = 'location'
+                    elif any(climate_col in col_lower for climate_col in ['climate', 'climate zone']):
+                        column_mapping[col] = 'climate'
+                    elif any(scale_col in col_lower for scale_col in ['scale']):
+                        column_mapping[col] = 'scale'
+                    elif any(building_use_col in col_lower for building_use_col in ['building use', 'building_type']):
+                        column_mapping[col] = 'building_use'
+                    elif any(approach_col in col_lower for approach_col in ['approach', 'methodology', 'method']):
+                        column_mapping[col] = 'approach'
+                    elif any(sample_size_col in col_lower for sample_size_col in ['sample size', 'sample', 'n']):
+                        column_mapping[col] = 'sample_size'
+                
+                # Check if we found a study column
+                if not any('study' in col.lower() for col in column_mapping.values()):
+                    st.error("No study column found in the uploaded file. Please ensure your Excel file has a column for study names.")
+                    st.write("Available columns:", list(df.columns))
+                    return
+                
+                # Rename columns
+                df = df.rename(columns=column_mapping)
+                
+                # Display preview
+                st.write("**Preview of data to import:**")
+                st.dataframe(df.head(10))
+                
+                # Show statistics
+                st.write(f"**Total records in file:** {len(df)}")
+                st.write(f"**Columns found:** {list(column_mapping.values())}")
+                
+                # Debug: Show what columns are actually being mapped
+                st.write("**Column mapping details:**")
+                for original, mapped in column_mapping.items():
+                    st.write(f"  - '{original}' → '{mapped}'")
+                
+                # Show sample of extracted climate codes
+                if 'climate' in df.columns:
+                    sample_climates = df['climate'].head(5).apply(extract_just_climate_code)
+                    st.write("**Sample climate code extraction (first 5):**")
+                    for i, (original, extracted) in enumerate(zip(df['climate'].head(5), sample_climates)):
+                        st.write(f"  {i+1}. '{original}' → '{extracted}'")
+                
+                # Import button with unique key
+                if st.button("Import Data to Database", type="primary", key="import_button_unique"):
+                    import_progress = st.progress(0)
+                    status_text = st.empty()
+                    
+                    cursor = conn.cursor()
+                    
+                    updated_count = 0
+                    not_found_studies = []
+                    
+                    for index, row in df.iterrows():
+                        # Update progress
+                        progress = (index + 1) / len(df)
+                        import_progress.progress(progress)
+                        status_text.text(f"Processing {index + 1}/{len(df)}: {row['study'][:50]}...")
+                        
+                        # Clean study name for matching (remove extra spaces, etc.)
+                        study_name = str(row['study']).strip()
+                        
+                        # Try to find matching record in database
+                        cursor.execute('''
+                            SELECT id, paragraph FROM energy_data 
+                            WHERE paragraph LIKE ? 
+                            OR paragraph LIKE ?
+                            LIMIT 1
+                        ''', (f'%{study_name}%', f'%{study_name[:100]}%'))
+                        
+                        result = cursor.fetchone()
+                        
+                        if result:
+                            record_id, paragraph = result
+                            
+                            # Get location from Location column (not from climate text)
+                            location_value = str(row.get('location', '')).strip()
+                            
+                            # Extract JUST the climate code from climate text
+                            climate_text = str(row.get('climate', '')).strip()
+                            climate_code = extract_just_climate_code(climate_text)
+                            
+                            # Get scale value
+                            scale_value = str(row.get('scale', '')).strip()
+                            
+                            # Debug info for first few records
+                            if index < 3:
+                                st.sidebar.write(f"**Record {record_id}:**")
+                                st.sidebar.write(f"  Study: '{study_name[:30]}...'")
+                                st.sidebar.write(f"  Location column value: '{location_value}'")
+                                st.sidebar.write(f"  Climate column text: '{climate_text}'")
+                                st.sidebar.write(f"  Extracted climate code: '{climate_code}'")
+                                st.sidebar.write(f"  Scale value: '{scale_value}'")
+                                st.sidebar.write("---")
+                            
+                            # Update the record with all available data
+                            cursor.execute('''
+                                UPDATE energy_data 
+                                SET location = ?, 
+                                    climate = ?, 
+                                    scale = ?,
+                                    building_use = ?,
+                                    approach = ?,
+                                    sample_size = ?
+                                WHERE id = ?
+                            ''', (
+                                location_value,  # From Location column
+                                climate_code if climate_code else '',  # Proper Köppen format
+                                scale_value,
+                                str(row.get('building_use', '')).strip(),
+                                str(row.get('approach', '')).strip(),
+                                str(row.get('sample_size', '')).strip(),
+                                record_id
+                            ))
+                            
+                            updated_count += 1
+                        else:
+                            not_found_studies.append(study_name)
+                    
+                    conn.commit()
+                    import_progress.empty()
+                    status_text.empty()
+                    
+                    # Show results
+                    st.success(f"✅ Import completed!")
+                    st.write(f"**Records updated:** {updated_count}")
+                    
+                    # Show summary of what was imported
+                    col_summary1, col_summary2, col_summary3, col_summary4 = st.columns(4)
+                    with col_summary1:
+                        location_count = df['location'].notna().sum() if 'location' in df.columns else 0
+                        st.metric("Location", location_count)
+                    with col_summary2:
+                        climate_count = df['climate'].notna().sum() if 'climate' in df.columns else 0
+                        st.metric("Climate", climate_count)
+                    with col_summary3:
+                        scale_count = df['scale'].notna().sum() if 'scale' in df.columns else 0
+                        st.metric("Scale", scale_count)
+                    with col_summary4:
+                        building_use_count = df['building_use'].notna().sum() if 'building_use' in df.columns else 0
+                        st.metric("Building Use", building_use_count)
+                    
+                    # Show location import summary
+                    if 'location' in df.columns:
+                        unique_locations = df['location'].dropna().unique()
+                        st.write(f"**Unique locations imported:** {len(unique_locations)}")
+                        with st.expander("View sample locations"):
+                            for loc in unique_locations[:10]:
+                                st.write(f"- {loc}")
+                    
+                    if not_found_studies:
+                        st.warning(f"**{len(not_found_studies)} studies not found in database:**")
+                        with st.expander("Show unmatched studies"):
+                            for study in not_found_studies[:20]:  # Show first 20
+                                st.write(f"- {study}")
+                            if len(not_found_studies) > 20:
+                                st.write(f"... and {len(not_found_studies) - 20} more")
+                    
+                    # Refresh to show updated data
+                    st.rerun()
+                
+        except Exception as e:
+            st.error(f"Error reading Excel file: {str(e)}")
+            import traceback
+            st.error(f"Detailed error: {traceback.format_exc()}")
+            st.write("Please check the file format and ensure it contains the correct sheet name.")
+      
+
+def reset_location_climate_scale_data():
+    """Clear all imported data and reset to defaults"""
+    global conn
+    cursor = conn.cursor()
+    try:
+        # Clear ALL imported data and reset to default values
+        cursor.execute('''
+            UPDATE energy_data 
+            SET location = NULL,
+                climate = NULL,
+                scale = 'Awaiting data',
+                building_use = NULL,
+                approach = NULL,
+                sample_size = NULL
+        ''')
+        
+        conn.commit()
+        st.success("✅ All imported data cleared and reset! (Location, Climate, Scale, Building Use, Approach, Sample Size)")
+        
+        # Show comprehensive statistics
+        cursor.execute("SELECT COUNT(*) FROM energy_data WHERE climate IS NULL")
+        climate_cleared_count = cursor.fetchone()[0]
+               
+        cursor.execute("SELECT COUNT(*) FROM energy_data WHERE scale = 'Awaiting data'")
+        scale_reset_count = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM energy_data WHERE building_use IS NULL")
+        building_use_cleared = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM energy_data WHERE approach IS NULL")
+        approach_cleared = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM energy_data WHERE sample_size IS NULL")
+        sample_size_cleared = cursor.fetchone()[0]
+        
+        st.info(f"""
+        **Reset Statistics:**
+        - Records with climate cleared: {climate_cleared_count}
+        - Records with scale reset: {scale_reset_count}
+        - Records with building use cleared: {building_use_cleared}
+        - Records with approach cleared: {approach_cleared}
+        - Records with sample size cleared: {sample_size_cleared}
+        """)
+        
+    except Exception as e:
+        st.error(f"Error resetting data: {str(e)}")
+
+    # Refresh to show updated data
+    time.sleep(2)
+    st.rerun()
+
+# Also need to update the process_confirmed_matches function to handle new columns:
+def process_confirmed_matches(confirmed_matches, excel_df):
+    """Process the user-confirmed matches with all data fields"""
+    if excel_df is None:
+        st.error("❌ No Excel data available for import.")
+        return 0
+
+    cursor = conn.cursor()
+    
+    updated_count = 0
+    not_found_in_excel = []
+    
+    for match in confirmed_matches:
+        record_id = match['db_record_id']
+        excel_study = match['excel_study']
+        
+        # Find the corresponding row in the Excel data
+        study_column = None
+        for col in excel_df.columns:
+            if 'study' in col.lower() or 'title' in col.lower():
+                study_column = col
+                break
+        
+        if study_column is None:
+            st.error("❌ No study column found in Excel file.")
+            return 0
+        
+        # Find matching row in Excel
+        excel_match = None
+        for idx, row in excel_df.iterrows():
+            excel_study_name = str(row[study_column]).strip()
+            if excel_study_name == excel_study:
+                excel_match = row
+                break
+        
+        if excel_match is not None:
+            # Extract all data from Excel row with flexible column names
+            location = ''
+            climate_text = ''
+            scale = ''
+            building_use = ''
+            approach = ''
+            sample_size = ''
             
-            # Update the database record - store dominant in 'climate' and multi in 'climate_multi'
+            # Find all columns
+            for col in excel_match.index:
+                col_lower = str(col).lower()
+                if 'location' in col_lower or 'site' in col_lower or 'region' in col_lower:
+                    location = str(excel_match[col]) if pd.notna(excel_match[col]) else ''
+                elif 'climate' in col_lower:
+                    climate_text = str(excel_match[col]) if pd.notna(excel_match[col]) else ''
+                elif 'scale' in col_lower:  # Removed the 'coverage' exclusion
+                    scale = str(excel_match[col]) if pd.notna(excel_match[col]) else ''
+                elif 'building' in col_lower and ('use' in col_lower or 'type' in col_lower):
+                    building_use = str(excel_match[col]) if pd.notna(excel_match[col]) else ''
+                elif 'approach' in col_lower or 'method' in col_lower:
+                    approach = str(excel_match[col]) if pd.notna(excel_match[col]) else ''
+                elif 'sample' in col_lower or 'n' == col_lower:
+                    sample_size = str(excel_match[col]) if pd.notna(excel_match[col]) else ''
+            
+            # FIX: Use extract_just_climate_code() which preserves case
+            climate_code = extract_just_climate_code(climate_text)
+            
+            # Update the database record with all fields
             cursor.execute('''
                 UPDATE energy_data 
-                SET location = ?, climate = ?, climate_multi = ?, scale = ?
+                SET location = ?, 
+                    climate = ?, 
+                    scale = ?,
+                    building_use = ?,
+                    approach = ?,
+                    sample_size = ?
                 WHERE id = ?
-            ''', (location, dominant_climate, multi_climate_str, scale, record_id))
+            ''', (
+                location, 
+                climate_code if climate_code else '',  # This preserves original case
+                scale,
+                building_use,
+                approach,
+                sample_size,
+                record_id
+            ))
             
             updated_count += 1
             
-            # Log the climate extraction for debugging
-            st.sidebar.write(f"Record {record_id}: Climate text='{climate_text}' -> Dominant='{dominant_climate}', Multi='{multi_climate_str}'")
+            # Log the update for debugging
+            st.sidebar.write(f"Record {record_id}:")
+            st.sidebar.write(f"  Climate text: '{climate_text}'")
+            st.sidebar.write(f"  Climate code: '{climate_code}'")
+            st.sidebar.write(f"  Scale: '{scale}'")
             
         else:
             not_found_in_excel.append(excel_study)
@@ -1947,90 +2396,6 @@ def process_confirmed_matches(confirmed_matches, excel_df):
         st.warning(f"⚠️ {len(not_found_in_excel)} studies not found in Excel file")
     
     return updated_count
-
-# Add the new climate_multi column to the database
-def add_climate_multi_column():
-    """Add climate_multi column to store multiple climate regions"""
-    cursor = conn.cursor()
-    
-    print("🔧 Adding climate_multi column...")
-    
-    # Add climate_multi column if it doesn't exist
-    try:
-        cursor.execute("ALTER TABLE energy_data ADD COLUMN climate_multi TEXT")
-        print("✅ Added 'climate_multi' column to energy_data table")
-    except sqlite3.OperationalError as e:
-        if "duplicate column name" in str(e):
-            print("ℹ️ 'climate_multi' column already exists")
-        else:
-            print(f"⚠️ Error with climate_multi column: {e}")
-    
-    conn.commit()
-    print("🔧 Database schema update completed")
-
-# Run this once to add the new column
-#add_climate_multi_column()
-
-def remove_scale_coverage_column():
-    """Remove scale_coverage column from the database"""
-    global conn
-    cursor = conn.cursor()
-    
-    print("🔧 Removing scale_coverage column...")
-    
-    try:
-        # Create a temporary table without scale_coverage
-        cursor.execute('''
-            CREATE TABLE energy_data_temp AS 
-            SELECT id, group_id, criteria, energy_method, direction, paragraph, 
-                   status, user, scale, climate, location, climate_multi
-            FROM energy_data
-        ''')
-        
-        # Drop the old table
-        cursor.execute("DROP TABLE energy_data")
-        
-        # Rename the temporary table
-        cursor.execute("ALTER TABLE energy_data_temp RENAME TO energy_data")
-        
-        print("✅ Successfully removed 'scale_coverage' column")
-        
-    except Exception as e:
-        print(f"⚠️ Error removing scale_coverage column: {e}")
-        # If something goes wrong, rollback any changes
-        conn.rollback()
-    
-    conn.commit()
-    print("🔧 Database schema update completed")
-
-# Run this function once to remove the column
-#remove_scale_coverage_column()
-
-
-
-def add_location_scale_coverage_columns():
-    db_file = 'my_database.db'
-    cursor = conn.cursor()
-    
-    print("🔧 Adding location column...")
-    
-    # Add location column if it doesn't exist
-    try:
-        cursor.execute("ALTER TABLE energy_data ADD COLUMN location TEXT")
-        print("✅ Added 'location' column to energy_data table")
-    except sqlite3.OperationalError as e:
-        if "duplicate column name" in str(e):
-            print("ℹ️ 'location' column already exists")
-        else:
-            print(f"⚠️ Error with location column: {e}")
-    
-    # REMOVED: scale_coverage column addition
-    
-    conn.commit()
-    
-    print("🔧 Database schema update completed")
-    
-#add_location_scale_coverage_columns()
     
 
 def manage_scale_climate_data():
@@ -2248,12 +2613,17 @@ def manage_scale_climate_data():
                             scale_name = st.session_state.admin_selected_scale.split(" [")[0]
                             current_scale_filter = [scale_name]
                         
+                        # Pass None for direction if it's not selected yet
+                        current_direction = None
+                        if selected_direction and selected_direction != "Select a direction":
+                            current_direction = selected_direction
+                        
                         # Get climate options with counts filtered by current scale
                         climate_options_with_counts = query_climate_options_with_counts(
                             conn, 
-                            actual_criteria, 
-                            actual_method, 
-                            selected_direction,  # Use selected direction
+                            actual_criteria,  # This might be None
+                            actual_method,    # This might be None  
+                            current_direction,  # Pass None if not selected
                             current_scale_filter  # Pass current scale filter
                         )
                         
@@ -2335,7 +2705,9 @@ def manage_scale_climate_data():
     if selected_scales:
         filtered_records = [r for r in filtered_records if r[7] in selected_scales]
     if selected_climates:
-        filtered_records = [r for r in filtered_records if r[8] in selected_climates]
+        # Case-insensitive comparison
+        selected_climates_upper = [c.upper() for c in selected_climates]
+        filtered_records = [r for r in filtered_records if r[8] and r[8].upper() in selected_climates_upper]
 
     # Only show results when we have the basic selections
     if actual_criteria and actual_method and selected_direction:
@@ -2422,63 +2794,41 @@ def manage_scale_climate_data():
                                     index=0 if direction == "Increase" else 1,
                                     key=f"admin_direction_{record_id}", horizontal=True)
             
+            # In the display section of manage_scale_climate_data()
             with col2:
-                # Scale - Dynamic dropdown from imported data
-                st.write("**Scale:**")
-                # Create a simple list of scale options
-                simple_scale_options = []
-                for opt in scale_options:
-                    if isinstance(opt, tuple):
-                        simple_scale_options.append(opt[0])  # Use the scale name
-                    else:
-                        simple_scale_options.append(opt)
+                st.write(f"**Scale:** {scale}")
                 
-                scale_index = 0
-                if scale in simple_scale_options:
-                    scale_index = simple_scale_options.index(scale) + 1
-                
-                new_scale = st.selectbox(
-                    "Select Scale",
-                    options=[""] + simple_scale_options,
-                    index=scale_index,
-                    key=f"admin_scale_{record_id}"
-                )
-                
-                # Climate - Dynamic dropdown with color coding
-                st.write("**Climate:**")
-                # Create a simple list of climate options without formatting for the dropdown
-                simple_climate_options = []
-                for opt in climate_options:
-                    if isinstance(opt, tuple):
-                        if len(opt) >= 2:
-                            simple_climate_options.append(opt[0])  # Use the raw climate code
-                    else:
-                        simple_climate_options.append(opt)
-                
-                climate_index = 0
-                if climate in simple_climate_options:
-                    climate_index = simple_climate_options.index(climate) + 1
-                
-                selected_climate = st.selectbox(
-                    "Select Climate",
-                    options=[""] + simple_climate_options,
-                    index=climate_index,
-                    key=f"admin_climate_{record_id}"
-                )
-                new_climate = selected_climate
-                
-                # Show climate color preview
-                if selected_climate:
-                    color = get_climate_color(selected_climate)
-                    st.markdown(f"<span style='background-color: {color}; padding: 4px 12px; border-radius: 12px; color: black; font-weight: bold;'>{selected_climate}</span>", unsafe_allow_html=True)
-                
-                # Location
-                new_location = st.text_input("Location", value=location or "", key=f"admin_location_{record_id}")
-                
-                # Status
-                new_status = st.selectbox("Status", status_options,
-                                        index=status_options.index(status) if status in status_options else 0,
-                                        key=f"admin_status_{record_id}")
+                if climate:
+                    # Handle different climate option formats for display
+                    formatted_climate_display = climate
+                    if climate_options and isinstance(climate_options[0], tuple):
+                        # Try to find the formatted version from climate_options
+                        for option in climate_options:
+                            if len(option) == 3:
+                                formatted, color_option, count = option
+                            else:
+                                formatted, color_option = option
+                                
+                            # Check if this formatted option matches our climate
+                            climate_code_from_formatted = formatted.split(" - ")[0]
+                            # Remove emoji to get just the code
+                            climate_code_clean = ''.join([c for c in climate_code_from_formatted if c.isalnum()])
+                            if climate_code_clean.upper() == climate.upper():
+                                formatted_climate_display = formatted
+                                break
+                    
+                    color = get_climate_color(climate)
+                    st.markdown(f"**Climate:** <span style='background-color: {color}; padding: 2px 8px; border-radius: 10px; color: black;'>{formatted_climate_display}</span>", unsafe_allow_html=True)
+
+                if location:
+                    st.write(f"**Location:** {location}")
+                if building_use:
+                    st.write(f"**Building Use:** {building_use}")
+                if approach:
+                    st.write(f"**Approach:** {approach}")
+                if sample_size:
+                    st.write(f"**Sample Size:** {sample_size}")
+                st.write(f"**Status:** {status}")
             
             # Paragraph content (larger area) - ALWAYS VISIBLE
             st.write("**Study Content:**")
@@ -2560,8 +2910,11 @@ def manage_scale_climate_data():
                 st.write(f"**Status:** {status}")
             
             # Study content - ALWAYS VISIBLE, not in expander
-           # st.write("**Study Content:**")
+            # st.write("**Study Content:**")
             st.text_area("Study content:", value=paragraph, height=150, key=f"admin_view_content_{record_id}", disabled=True)
+            # NEW: Sample Size field beneath the paragraph
+            if sample_size and str(sample_size).strip() != '':
+                st.write(f"**Sample Size:** {sample_size}")
     
     # Quick actions
     st.markdown("---")
@@ -2908,8 +3261,9 @@ db_file = 'my_database.db'
 # conn = sqlite3.connect(db_file)
 
 # Query functions #######################################################
+# Update the query_paragraphs function to handle case-insensitive matching:
 def query_paragraphs(conn, criteria, energy_method, direction, selected_scales=None, selected_dominant_climates=None):
-    """Query paragraphs with simplified filters - use local connection"""
+    """Query paragraphs with filters - handle climate codes case-insensitively"""
     try:
         cursor = conn.cursor()
     
@@ -2930,12 +3284,14 @@ def query_paragraphs(conn, criteria, energy_method, direction, selected_scales=N
         # Add dominant climate filter if provided
         if selected_dominant_climates and "All" not in selected_dominant_climates:
             if "Varies" in selected_dominant_climates:
-                # For "Varies", look for records with multiple climates in climate_multi
                 query += ' AND climate_multi IS NOT NULL AND climate_multi != "" AND INSTR(climate_multi, ",") > 0'
             else:
+                # Handle case-insensitive climate matching
+                # Convert both database values and filter values to uppercase for comparison
                 placeholders = ','.join('?' * len(selected_dominant_climates))
-                query += f' AND climate IN ({placeholders})'
-                params.extend(selected_dominant_climates)
+                query += f' AND UPPER(climate) IN ({placeholders})'
+                # Convert all selected climates to uppercase for comparison
+                params.extend([climate.upper() for climate in selected_dominant_climates])
         
         cursor.execute(query, params)
         paragraphs = cursor.fetchall()
@@ -3013,7 +3369,7 @@ def query_climate_options(conn):
     # Return just the formatted strings for backward compatibility
     return [formatted for formatted, color in climate_data]
 
-def query_scale_options_with_counts(conn, criteria=None, energy_method=None, direction=None, selected_climates=None):
+def query_scale_options_with_counts(conn, criteria=None, energy_method=None, direction=None, selected_climates=None, selected_locations=None):
     """Get scale options with counts filtered by current search criteria AND other active filters"""
     cursor = conn.cursor()
     
@@ -3050,8 +3406,14 @@ def query_scale_options_with_counts(conn, criteria=None, energy_method=None, dir
     # ADD CLIMATE FILTER TO SCALE COUNTS
     if selected_climates and selected_climates != ["All"]:
         placeholders = ','.join('?' * len(selected_climates))
-        query += f' AND climate IN ({placeholders})'
-        params.extend(selected_climates)
+        query += f' AND UPPER(climate) IN ({placeholders})'
+        params.extend([c.upper() for c in selected_climates])
+    
+    # ADD LOCATION FILTER TO SCALE COUNTS
+    if selected_locations and selected_locations != ["All"]:
+        placeholders = ','.join('?' * len(selected_locations))
+        query += f' AND location IN ({placeholders})'
+        params.extend(selected_locations)
     
     query += ' GROUP BY scale ORDER BY scale ASC'
     
@@ -3060,8 +3422,9 @@ def query_scale_options_with_counts(conn, criteria=None, energy_method=None, dir
     scales_with_counts = [(row[0], row[1]) for row in results if row[0] and str(row[0]).strip()]
     return scales_with_counts
 
+# Also update the query_climate_options_with_counts function to handle case properly:
 def query_climate_options_with_counts(conn, criteria=None, energy_method=None, direction=None, selected_scales=None):
-    """Get climate options with counts filtered by current search criteria AND other active filters"""
+    """Get climate options with counts - show ALL when no specific filters are selected"""
     cursor = conn.cursor()
     
     query = '''
@@ -3080,6 +3443,7 @@ def query_climate_options_with_counts(conn, criteria=None, energy_method=None, d
     '''
     params = []
     
+    # Only apply filters if they're actually selected (not "Select a...")
     if criteria and criteria != "Select a determinant":
         query += ' AND criteria = ?'
         params.append(criteria)
@@ -3094,7 +3458,7 @@ def query_climate_options_with_counts(conn, criteria=None, energy_method=None, d
         query += ' AND direction = ?'
         params.append(clean_direction)
     
-    # ADD SCALE FILTER TO CLIMATE COUNTS
+    # Only apply scale filter if specific scales are selected (not "All")
     if selected_scales and selected_scales != ["All"]:
         placeholders = ','.join('?' * len(selected_scales))
         query += f' AND scale IN ({placeholders})'
@@ -3105,14 +3469,14 @@ def query_climate_options_with_counts(conn, criteria=None, energy_method=None, d
     cursor.execute(query, params)
     results = cursor.fetchall()
     
-    # Define ONLY the allowed Köppen climate classifications with descriptions
+    # Define Köppen climate classifications with descriptions - use UPPERCASE for lookup
     koppen_climates_with_descriptions = {
-        'Af': 'Tropical Rainforest', 'Am': 'Tropical Monsoon', 'Aw': 'Tropical Savanna',
-        'BWh': 'Hot Desert', 'BWk': 'Cold Desert', 'BSh': 'Hot Semi-arid', 'BSk': 'Cold Semi-arid',
-        'Cfa': 'Humid Subtropical', 'Cfb': 'Oceanic', 'Cfc': 'Subpolar Oceanic',
-        'Csa': 'Hot-summer Mediterranean', 'Csb': 'Warm-summer Mediterranean',
-        'Dfa': 'Hot-summer Humid Continental', 'Dfb': 'Warm-summer Humid Continental', 
-        'Dfc': 'Subarctic', 'Dfd': 'Extremely Cold Subarctic',
+        'AF': 'Tropical Rainforest', 'AM': 'Tropical Monsoon', 'AW': 'Tropical Savanna',
+        'BWH': 'Hot Desert', 'BWK': 'Cold Desert', 'BSH': 'Hot Semi-arid', 'BSK': 'Cold Semi-arid',
+        'CFA': 'Humid Subtropical', 'CFB': 'Oceanic', 'CFC': 'Subpolar Oceanic',
+        'CSA': 'Hot-summer Mediterranean', 'CSB': 'Warm-summer Mediterranean',
+        'DFA': 'Hot-summer Humid Continental', 'DFB': 'Warm-summer Humid Continental', 
+        'DFC': 'Subarctic', 'DFD': 'Extremely Cold Subarctic',
         'ET': 'Tundra', 'EF': 'Ice Cap'
     }
     
@@ -3128,21 +3492,63 @@ def query_climate_options_with_counts(conn, criteria=None, energy_method=None, d
         '#AFB0AB': '⬜', '#686964': '⬛',
     }
     
-    # Filter to ONLY include the specified Köppen classifications with color glyphs and counts
+    # Format climate codes with descriptions and colors
     valid_climates = []
     for climate, count in results:
-        if climate in koppen_climates_with_descriptions:
+        if not climate or str(climate).strip() == '':
+            continue
+            
+        # Keep original case for display, use uppercase for lookup
+        climate_original = str(climate).strip()
+        climate_upper = climate_original.upper()
+        
+        # Check if it's a valid Köppen code
+        if climate_upper in koppen_climates_with_descriptions:
             # Get color for this climate
-            color = get_climate_color(climate)
+            color = get_climate_color(climate_original)
             # Get corresponding emoji
             emoji = color_to_emoji.get(color, '⬜')
-            # Format as "🟦 Cfa - Humid Subtropical [5]"
-            formatted_climate = f"{emoji} {climate} - {koppen_climates_with_descriptions[climate]} [{count}]"
-            valid_climates.append((climate, formatted_climate, color, count))
+            # Format as "🟦 Csa - Hot-summer Mediterranean [5]" - using original case
+            description = koppen_climates_with_descriptions[climate_upper]
+            formatted_climate = f"{emoji} {climate_original} - {description} [{count}]"
+            valid_climates.append((climate_original, formatted_climate, color, count))
+        else:
+            # For non-Köppen codes, still show them but without description
+            color = '#CCCCCC'  # Default gray
+            emoji = '⬜'
+            formatted_climate = f"{emoji} {climate_original} [{count}]"
+            valid_climates.append((climate_original, formatted_climate, color, count))
     
-    # Sort by climate code
-    valid_climates.sort(key=lambda x: x[0])
+    # Sort by climate code (case-insensitive)
+    valid_climates.sort(key=lambda x: x[0].upper())
     return [(formatted, color, count) for _, formatted, color, count in valid_climates]
+
+# Also update the get_climate_color function to handle case-insensitive:
+def get_climate_color(climate_code):
+    """Get color for climate code - handle mixed case"""
+    # Extract code if it's formatted as "Code - Description"
+    if " - " in str(climate_code):
+        climate_code = climate_code.split(" - ")[0]
+    
+    # Convert to uppercase for dictionary lookup, but store original for display
+    climate_upper = str(climate_code).upper().strip() if climate_code else ""
+    
+    colors = {
+        # Tropical Climates
+        'AF': '#0000FE', 'AM': '#0077FD', 'AW': '#44A7F8',
+        # Arid Climates
+        'BWH': "#FD0000", 'BWK': '#F89292', 'BSH': '#F4A400', 'BSK': '#FEDA60',
+        # Temperate Climates
+        'CSA': '#FFFE04', 'CSB': '#CDCE08',
+        'CFA': '#C5FF4B', 'CFB': '#64FD33', 'CFC': '#36C901',
+        # Continental Climates
+        'DFA': '#01FEFC', 'DFB': '#3DC6FA', 'DFC': '#037F7F', 'DFD': '#004860',
+        # Polar Climates
+        'ET': '#AFB0AB', 'EF': '#686964',
+        # Special categories
+        'ALL': '#999999'
+    }
+    return colors.get(climate_upper, '#CCCCCC')
 
 def query_dynamic_scale_options(conn):
     """Get unique scale values from the database"""
@@ -3265,6 +3671,169 @@ def query_direction_counts(conn, selected_criteria, selected_method):
     ''', (selected_criteria, selected_method))
     return dict(cursor.fetchall())
 
+def query_location_options_with_counts(conn, criteria=None, energy_method=None, direction=None, selected_scales=None, selected_climates=None):
+    """Get location options with counts filtered by current search criteria"""
+    cursor = conn.cursor()
+    
+    query = '''
+        SELECT location, COUNT(*) as count
+        FROM energy_data 
+        WHERE location IS NOT NULL 
+          AND location != '' 
+          AND paragraph IS NOT NULL 
+          AND paragraph != '' 
+          AND paragraph != '0' 
+          AND paragraph != '0.0'
+          AND paragraph != 'None'
+          AND LENGTH(TRIM(paragraph)) > 0
+          AND status NOT IN ("pending", "rejected")
+    '''
+    params = []
+    
+    if criteria and criteria != "Select a determinant":
+        query += ' AND criteria = ?'
+        params.append(criteria)
+    
+    if energy_method and energy_method != "Select an output":
+        query += ' AND energy_method = ?'
+        params.append(energy_method)
+    
+    if direction and direction not in ["Select a direction", None]:
+        clean_direction = direction.split(" [")[0] if " [" in direction else direction
+        query += ' AND direction = ?'
+        params.append(clean_direction)
+    
+    if selected_scales and selected_scales != ["All"]:
+        placeholders = ','.join('?' * len(selected_scales))
+        query += f' AND scale IN ({placeholders})'
+        params.extend(selected_scales)
+    
+    if selected_climates and selected_climates != ["All"]:
+        # Case-insensitive comparison for climates
+        placeholders = ','.join('?' * len(selected_climates))
+        query += f' AND UPPER(climate) IN ({placeholders})'
+        params.extend([c.upper() for c in selected_climates])
+    
+    query += ' GROUP BY location ORDER BY location ASC'
+    
+    cursor.execute(query, params)
+    results = cursor.fetchall()
+    
+    return [(row[0], row[1]) for row in results if row[0] and str(row[0]).strip()]
+
+def query_building_use_options_with_counts(conn, criteria=None, energy_method=None, direction=None, selected_scales=None, selected_climates=None, selected_locations=None):
+    """Get building use options with counts filtered by current search criteria"""
+    cursor = conn.cursor()
+    
+    query = '''
+        SELECT building_use, COUNT(*) as count
+        FROM energy_data 
+        WHERE building_use IS NOT NULL 
+          AND building_use != '' 
+          AND paragraph IS NOT NULL 
+          AND paragraph != '' 
+          AND paragraph != '0' 
+          AND paragraph != '0.0'
+          AND paragraph != 'None'
+          AND LENGTH(TRIM(paragraph)) > 0
+          AND status NOT IN ("pending", "rejected")
+    '''
+    params = []
+    
+    if criteria and criteria != "Select a determinant":
+        query += ' AND criteria = ?'
+        params.append(criteria)
+    
+    if energy_method and energy_method != "Select an output":
+        query += ' AND energy_method = ?'
+        params.append(energy_method)
+    
+    if direction and direction not in ["Select a direction", None]:
+        clean_direction = direction.split(" [")[0] if " [" in direction else direction
+        query += ' AND direction = ?'
+        params.append(clean_direction)
+    
+    if selected_scales and selected_scales != ["All"]:
+        placeholders = ','.join('?' * len(selected_scales))
+        query += f' AND scale IN ({placeholders})'
+        params.extend(selected_scales)
+    
+    if selected_climates and selected_climates != ["All"]:
+        placeholders = ','.join('?' * len(selected_climates))
+        query += f' AND UPPER(climate) IN ({placeholders})'
+        params.extend([c.upper() for c in selected_climates])
+    
+    if selected_locations and selected_locations != ["All"]:
+        placeholders = ','.join('?' * len(selected_locations))
+        query += f' AND location IN ({placeholders})'
+        params.extend(selected_locations)
+    
+    query += ' GROUP BY building_use ORDER BY building_use ASC'
+    
+    cursor.execute(query, params)
+    results = cursor.fetchall()
+    
+    return [(row[0], row[1]) for row in results if row[0] and str(row[0]).strip()]
+
+def query_approach_options_with_counts(conn, criteria=None, energy_method=None, direction=None, selected_scales=None, selected_climates=None, selected_locations=None, selected_building_uses=None):
+    """Get approach options with counts filtered by current search criteria"""
+    cursor = conn.cursor()
+    
+    query = '''
+        SELECT approach, COUNT(*) as count
+        FROM energy_data 
+        WHERE approach IS NOT NULL 
+          AND approach != '' 
+          AND paragraph IS NOT NULL 
+          AND paragraph != '' 
+          AND paragraph != '0' 
+          AND paragraph != '0.0'
+          AND paragraph != 'None'
+          AND LENGTH(TRIM(paragraph)) > 0
+          AND status NOT IN ("pending", "rejected")
+    '''
+    params = []
+    
+    if criteria and criteria != "Select a determinant":
+        query += ' AND criteria = ?'
+        params.append(criteria)
+    
+    if energy_method and energy_method != "Select an output":
+        query += ' AND energy_method = ?'
+        params.append(energy_method)
+    
+    if direction and direction not in ["Select a direction", None]:
+        clean_direction = direction.split(" [")[0] if " [" in direction else direction
+        query += ' AND direction = ?'
+        params.append(clean_direction)
+    
+    if selected_scales and selected_scales != ["All"]:
+        placeholders = ','.join('?' * len(selected_scales))
+        query += f' AND scale IN ({placeholders})'
+        params.extend(selected_scales)
+    
+    if selected_climates and selected_climates != ["All"]:
+        placeholders = ','.join('?' * len(selected_climates))
+        query += f' AND UPPER(climate) IN ({placeholders})'
+        params.extend([c.upper() for c in selected_climates])
+    
+    if selected_locations and selected_locations != ["All"]:
+        placeholders = ','.join('?' * len(selected_locations))
+        query += f' AND location IN ({placeholders})'
+        params.extend(selected_locations)
+    
+    if selected_building_uses and selected_building_uses != ["All"]:
+        placeholders = ','.join('?' * len(selected_building_uses))
+        query += f' AND building_use IN ({placeholders})'
+        params.extend(selected_building_uses)
+    
+    query += ' GROUP BY approach ORDER BY approach ASC'
+    
+    cursor.execute(query, params)
+    results = cursor.fetchall()
+    
+    return [(row[0], row[1]) for row in results if row[0] and str(row[0]).strip()]
+
 def render_unified_search_interface(enable_editing=False):
     """Unified search interface used by both main app and admin"""
     global conn
@@ -3296,7 +3865,7 @@ def render_unified_search_interface(enable_editing=False):
     
     # Get all approved records for display
     cursor.execute('''
-        SELECT id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location
+        SELECT id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size
         FROM energy_data 
         WHERE status NOT IN ("pending", "rejected")
           AND paragraph IS NOT NULL 
@@ -3315,10 +3884,13 @@ def render_unified_search_interface(enable_editing=False):
     # Initialize filter variables
     selected_scales = []
     selected_climates = []
+    selected_locations = []
+    selected_building_uses = []
+    selected_approaches = []
     selected_direction = None
     actual_method = None
 
-    # UNIFIED FILTER LAYOUT - Same as admin but without "All" options
+    # UNIFIED FILTER LAYOUT
     # Step 1: Determinant dropdown - full width
     selected_criteria = st.selectbox("Determinant", criteria_list, key="unified_criteria")
     actual_criteria = selected_criteria.split(" [")[0] if selected_criteria != "Select a determinant" else None
@@ -3344,8 +3916,9 @@ def render_unified_search_interface(enable_editing=False):
                 key="unified_direction"
             )
             
-            # Step 4: Scale and Climate filters in 2 columns (only when direction is selected)
+            # Step 4: Additional filters in columns (only when direction is selected)
             if selected_direction:
+                # First row of filters: Scale and Climate
                 col_scale, col_climate = st.columns(2)
                 
                 with col_scale:
@@ -3357,8 +3930,14 @@ def render_unified_search_interface(enable_editing=False):
                             climate_code = ''.join([c for c in climate_code if c.isalnum()])
                             current_climate_filter = [climate_code]
                         
+                        current_location_filter = []
+                        if 'unified_selected_location' in st.session_state and st.session_state.unified_selected_location != "All":
+                            location_name = st.session_state.unified_selected_location.split(" [")[0]
+                            current_location_filter = [location_name]
+                        
                         scale_options_with_counts = query_scale_options_with_counts(
-                            conn, actual_criteria, actual_method, selected_direction, current_climate_filter
+                            conn, actual_criteria, actual_method, selected_direction, 
+                            current_climate_filter, current_location_filter
                         )
                         
                         if scale_options_with_counts:
@@ -3367,7 +3946,7 @@ def render_unified_search_interface(enable_editing=False):
                             
                             scale_options_formatted = ["All"] + [f"{scale} [{count}]" for scale, count in scale_options_with_counts]
                             
-                            # Smart index calculation (same as admin)
+                            # Smart index calculation
                             current_scale = st.session_state.unified_selected_scale
                             current_index = 0
                             if current_scale != "All":
@@ -3409,8 +3988,22 @@ def render_unified_search_interface(enable_editing=False):
                             scale_name = st.session_state.unified_selected_scale.split(" [")[0]
                             current_scale_filter = [scale_name]
                         
+                        current_location_filter = []
+                        if 'unified_selected_location' in st.session_state and st.session_state.unified_selected_location != "All":
+                            location_name = st.session_state.unified_selected_location.split(" [")[0]
+                            current_location_filter = [location_name]
+                        
+                        # Pass None for direction if it's not selected yet
+                        current_direction = None
+                        if selected_direction and selected_direction != "Select a direction":
+                            current_direction = selected_direction
+                        
                         climate_options_with_counts = query_climate_options_with_counts(
-                            conn, actual_criteria, actual_method, selected_direction, current_scale_filter
+                            conn, 
+                            actual_criteria,  # This might be None if not selected
+                            actual_method,    # This might be None if not selected
+                            current_direction,  # Pass None if not selected
+                            current_scale_filter  # Pass current scale filter
                         )
                         
                         if climate_options_with_counts:
@@ -3419,7 +4012,7 @@ def render_unified_search_interface(enable_editing=False):
                             
                             climate_options_formatted = ["All"] + [formatted for formatted, color, count in climate_options_with_counts]
                             
-                            # Smart index calculation (same as admin)
+                            # Smart index calculation
                             current_climate = st.session_state.unified_selected_climate
                             current_index = 0
                             if current_climate != "All":
@@ -3432,7 +4025,7 @@ def render_unified_search_interface(enable_editing=False):
                                 for i, option in enumerate(climate_options_formatted):
                                     option_code = option.split(" - ")[0]
                                     option_code = ''.join([c for c in option_code if c.isalnum()])
-                                    if option_code == current_climate_code:
+                                    if option_code.upper() == current_climate_code.upper():
                                         current_index = i
                                         break
                                 else:
@@ -3457,6 +4050,155 @@ def render_unified_search_interface(enable_editing=False):
                     else:
                         st.info("No climate data available")
 
+                # Second row of filters: Location and Building Use
+                col_location, col_building_use = st.columns(2)
+                
+                with col_location:
+                    # Location filter
+                    current_direction = selected_direction.split(" [")[0] if " [" in selected_direction else selected_direction
+                    
+                    location_options_with_counts = query_location_options_with_counts(
+                        conn, actual_criteria, actual_method, current_direction, 
+                        selected_scales, selected_climates
+                    )
+                    
+                    if location_options_with_counts:
+                        if 'unified_selected_location' not in st.session_state:
+                            st.session_state.unified_selected_location = "All"
+                        
+                        location_options_formatted = ["All"] + [f"{location} [{count}]" for location, count in location_options_with_counts]
+                        
+                        # Smart index calculation
+                        current_location = st.session_state.unified_selected_location
+                        current_index = 0
+                        if current_location != "All":
+                            if " [" in current_location:
+                                current_location_name = current_location.split(" [")[0]
+                            else:
+                                current_location_name = current_location
+                            
+                            for i, option in enumerate(location_options_formatted):
+                                if option.startswith(current_location_name + " [") or option == current_location:
+                                    current_index = i
+                                    break
+                            else:
+                                st.session_state.unified_selected_location = "All"
+                                current_index = 0
+                        
+                        selected_location = st.selectbox(
+                            "Filter by Location",
+                            options=location_options_formatted,
+                            index=current_index,
+                            key="unified_location"
+                        )
+                        
+                        if selected_location != st.session_state.unified_selected_location:
+                            st.session_state.unified_selected_location = selected_location
+                            st.rerun()
+                        
+                        if selected_location != "All":
+                            location_name = selected_location.split(" [")[0]
+                            selected_locations = [location_name]
+                    else:
+                        st.info("No location data available")
+
+                with col_building_use:
+                    # Building Use filter
+                    building_use_options_with_counts = query_building_use_options_with_counts(
+                        conn, actual_criteria, actual_method, current_direction,
+                        selected_scales, selected_climates, selected_locations
+                    )
+                    
+                    if building_use_options_with_counts:
+                        if 'unified_selected_building_use' not in st.session_state:
+                            st.session_state.unified_selected_building_use = "All"
+                        
+                        building_use_options_formatted = ["All"] + [f"{use} [{count}]" for use, count in building_use_options_with_counts]
+                        
+                        # Smart index calculation
+                        current_building_use = st.session_state.unified_selected_building_use
+                        current_index = 0
+                        if current_building_use != "All":
+                            if " [" in current_building_use:
+                                current_use_name = current_building_use.split(" [")[0]
+                            else:
+                                current_use_name = current_building_use
+                            
+                            for i, option in enumerate(building_use_options_formatted):
+                                if option.startswith(current_use_name + " [") or option == current_building_use:
+                                    current_index = i
+                                    break
+                            else:
+                                st.session_state.unified_selected_building_use = "All"
+                                current_index = 0
+                        
+                        selected_building_use = st.selectbox(
+                            "Filter by Building Use",
+                            options=building_use_options_formatted,
+                            index=current_index,
+                            key="unified_building_use"
+                        )
+                        
+                        if selected_building_use != st.session_state.unified_selected_building_use:
+                            st.session_state.unified_selected_building_use = selected_building_use
+                            st.rerun()
+                        
+                        if selected_building_use != "All":
+                            building_use_name = selected_building_use.split(" [")[0]
+                            selected_building_uses = [building_use_name]
+                    else:
+                        st.info("No building use data available")
+
+                # Third row: Approach filter
+                col_approach = st.columns(1)[0]
+                
+                with col_approach:
+                    # Approach filter
+                    approach_options_with_counts = query_approach_options_with_counts(
+                        conn, actual_criteria, actual_method, current_direction,
+                        selected_scales, selected_climates, selected_locations, selected_building_uses
+                    )
+                    
+                    if approach_options_with_counts:
+                        if 'unified_selected_approach' not in st.session_state:
+                            st.session_state.unified_selected_approach = "All"
+                        
+                        approach_options_formatted = ["All"] + [f"{approach} [{count}]" for approach, count in approach_options_with_counts]
+                        
+                        # Smart index calculation
+                        current_approach = st.session_state.unified_selected_approach
+                        current_index = 0
+                        if current_approach != "All":
+                            if " [" in current_approach:
+                                current_approach_name = current_approach.split(" [")[0]
+                            else:
+                                current_approach_name = current_approach
+                            
+                            for i, option in enumerate(approach_options_formatted):
+                                if option.startswith(current_approach_name + " [") or option == current_approach:
+                                    current_index = i
+                                    break
+                            else:
+                                st.session_state.unified_selected_approach = "All"
+                                current_index = 0
+                        
+                        selected_approach = st.selectbox(
+                            "Filter by Approach",
+                            options=approach_options_formatted,
+                            index=current_index,
+                            key="unified_approach"
+                        )
+                        
+                        if selected_approach != st.session_state.unified_selected_approach:
+                            st.session_state.unified_selected_approach = selected_approach
+                            st.rerun()
+                        
+                        if selected_approach != "All":
+                            approach_name = selected_approach.split(" [")[0]
+                            selected_approaches = [approach_name]
+                    else:
+                        st.info("No approach data available")
+
     # Filter records
     filtered_records = records
     if actual_criteria:
@@ -3469,7 +4211,15 @@ def render_unified_search_interface(enable_editing=False):
     if selected_scales:
         filtered_records = [r for r in filtered_records if r[7] in selected_scales]
     if selected_climates:
-        filtered_records = [r for r in filtered_records if r[8] in selected_climates]
+        # Case-insensitive comparison
+        selected_climates_upper = [c.upper() for c in selected_climates]
+        filtered_records = [r for r in filtered_records if r[8] and r[8].upper() in selected_climates_upper]
+    if selected_locations:
+        filtered_records = [r for r in filtered_records if r[9] in selected_locations]
+    if selected_building_uses:
+        filtered_records = [r for r in filtered_records if r[10] in selected_building_uses]
+    if selected_approaches:
+        filtered_records = [r for r in filtered_records if r[11] in selected_approaches]
 
     # Display results
     if actual_criteria and actual_method and selected_direction:
@@ -3479,11 +4229,11 @@ def render_unified_search_interface(enable_editing=False):
             st.markdown(f"<p><b>The following studies show that an increase (or presence) in {actual_criteria} leads to <i>{'higher' if 'Increase' in selected_direction else 'lower'}</i> {actual_method}.</b></p>", unsafe_allow_html=True)
 
         for count, record in enumerate(filtered_records, start=1):
-            record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location = record
+            record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
             
             st.markdown("---")
             
-            # Display record information (same clean layout as admin)
+            # Display record information
             col1, col2 = st.columns(2)
             
             with col1:
@@ -3492,6 +4242,8 @@ def render_unified_search_interface(enable_editing=False):
                 st.write(f"**Direction:** {direction}")
                 if location:
                     st.write(f"**Location:** {location}")
+                if building_use:
+                    st.write(f"**Building Use:** {building_use}")
             
             with col2:
                 st.write(f"**Scale:** {scale}")
@@ -3505,15 +4257,19 @@ def render_unified_search_interface(enable_editing=False):
                                 formatted, color_option = option
                             climate_code_from_formatted = formatted.split(" - ")[0]
                             climate_code_clean = ''.join([c for c in climate_code_from_formatted if c.isalnum()])
-                            if climate_code_clean == climate:
+                            if climate_code_clean.upper() == climate.upper():
                                 formatted_climate_display = formatted
                                 break
                     
                     color = get_climate_color(climate)
                     st.markdown(f"**Climate:** <span style='background-color: {color}; padding: 2px 8px; border-radius: 10px; color: black;'>{formatted_climate_display}</span>", unsafe_allow_html=True)
+                
+                if approach:
+                    st.write(f"**Approach:** {approach}")
+                if sample_size:
+                    st.write(f"**Sample Size:** {sample_size}")
 
             # Study content - always visible
-            #st.write("**Study Content:**")
             st.text_area("Study content:", value=paragraph, height=150, key=f"content_{record_id}", disabled=True)
             
             # Only show edit buttons for admin users
@@ -3526,79 +4282,6 @@ def render_unified_search_interface(enable_editing=False):
         st.warning("Please select a determinant, energy output, and direction to see results")
     else:
         st.info("Use the filters above to explore the database")
-
-# # Updated main app layout
-# # Remove the entire render_main_tab() function and replace it with this:
-
-#     def render_spatialbuild_tab(enable_editing=False):
-#         """Render the main SpatialBuild Energy tab with welcome message and search"""
-#         st.title("Welcome to SpatialBuild Energy")
-#         welcome_html = ("""<h7>This tool distills insights from over 200 studies on building energy consumption across meso and macro scales, spanning neighborhood, urban, state, regional, national, and global levels. It maps more than 100 factors influencing energy use, showing whether each increases or decreases energy outputs like total consumption, energy use intensity, or heating demand. Designed for urban planners and policymakers, the tool provides insights to craft smarter energy reduction strategies.</p><p><h7>"""
-#         )
-#         st.markdown(welcome_html, unsafe_allow_html=True)
-
-#         how_it_works_html = ("""
-#         1. Pick Your Focus: Choose the determinant you want to explore.<br>
-#         2. Select Energy Outputs: For example energy use intensity or heating demand from our database.<br>
-#         3. Filter the Results by the direction of the relationship (e.g., increases or decreases), and access the relevant studies with the links provided."""
-#         )
-#         st.markdown(how_it_works_html, unsafe_allow_html=True)
-        
-#         render_unified_search_interface(enable_editing=enable_editing)
-
-#     # Then update the MAIN APP LAYOUT section at the bottom:
-#     # MAIN APP LAYOUT - CLEAN AND ORGANIZED
-#     if st.session_state.logged_in:
-#         if st.session_state.current_user == "admin":
-#             # Admin view
-#             tab_labels = ["SpatialBuild Energy", "Contribute", "Edit/Review"]
-#             tabs = st.tabs(tab_labels)
-#             tab0, tab1, tab2 = tabs
-            
-#             with tab0:
-#                 render_spatialbuild_tab(enable_editing=True)
-            
-#             with tab1:
-#                 render_contribute_tab()
-            
-#             with tab2:
-#                 admin_dashboard()
-            
-#             render_admin_sidebar()
-
-#         else:  
-#             # Regular user view
-#             tab_labels = ["SpatialBuild Energy", "Contribute", "Your Contributions"]
-#             tabs = st.tabs(tab_labels)
-#             tab0, tab1, tab2 = tabs
-            
-#             with tab0:
-#                 render_spatialbuild_tab(enable_editing=False)
-            
-#             with tab1:
-#                 render_contribute_tab()
-            
-#             with tab2:
-#                 user_dashboard()
-            
-#             render_user_sidebar()
-
-#     else:  
-#         # Not logged in view
-#         tab_labels = ["SpatialBuild Energy", "Contribute"]
-#         tabs = st.tabs(tab_labels)
-#         tab0, tab1 = tabs
-        
-#         with tab0:
-#             render_spatialbuild_tab(enable_editing=False)
-        
-#         with tab1:
-#             render_contribute_tab()
-        
-#         render_guest_sidebar()
-#                 # st.image("bubblechart_placeholder.png")
-#                 # st.caption("Bubble chart visualizing studied determinants, energy outputs, and the direction of their relationships based on the literature.")
-
 
 def render_contribute_tab():
     """Render the Contribute tab content"""
