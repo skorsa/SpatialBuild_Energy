@@ -4774,7 +4774,7 @@ footer_html = """
     }
     </style>
     <div class="custom_footer">
-        <p style='font-size:12px;'>If your study, or a study you are aware of, suggests any of these relationships are currently missing from the database, please email the study to ssk5573@psu.edu.<br> Your contribution will help further develop and improve this tool.</p>
+        <p style='font-size:12px;'>If your study, or a study you are aware of, suggests any of these relationships are currently missing from the database, please email the study to sskorsavi@caad.msstate.edu .<br> Your contribution will help further develop and improve this tool.</p>
     </div>
 """
 st.markdown(footer_html, unsafe_allow_html=True)
