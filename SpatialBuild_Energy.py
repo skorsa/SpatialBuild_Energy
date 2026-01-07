@@ -79,6 +79,21 @@ def check_database_health():
         st.sidebar.error(f"❌ Database error: {e}")
         return False
 
+#check_database_health()
+
+def check_button_clicks():
+    """Debug function to check if buttons are being clicked"""
+    if 'button_clicks' not in st.session_state:
+        st.session_state.button_clicks = {}
+    
+    # Add to your reject button callback:
+    # st.session_state.button_clicks[f'reject_{record_id}'] = time.time()
+    
+    st.sidebar.write("Button click history:")
+    for btn, timestamp in st.session_state.button_clicks.items():
+        st.sidebar.write(f"{btn}: {datetime.fromtimestamp(timestamp).strftime('%H:%M:%S')}")
+
+
 def query_approved_criteria(conn):
         cursor = conn.cursor()
         cursor.execute("SELECT DISTINCT criteria FROM energy_data WHERE status NOT IN ('rejected', 'pending')  ORDER BY criteria ASC")
@@ -688,6 +703,7 @@ def admin_dashboard():
     # Check if user is admin
     is_admin = st.session_state.get("user_role") == "admin"
     
+    # Always show the dashboard title
     st.subheader("Admin Dashboard")
     
     # Tab interface for different admin functions
@@ -708,6 +724,9 @@ def admin_dashboard():
     with tab4:
         # New Missing Data Review tab
         review_missing_data()
+    
+    # Don't modify any session state that might affect sidebar rendering
+    return
 
 
 def admin_import_and_match_studies(uploaded_file):
@@ -826,10 +845,385 @@ def preprocess_study_name(study_name):
     
     return clean_name
 
+def show_edit_modal(record_id, from_missing_data=False):
+    """Show a modal-like edit form at the top of the page"""
+    st.subheader(f"Editing Record {record_id}")
+    
+    # Add a back button at the top
+    # col_back, _ = st.columns([1, 3])
+    # with col_back:
+    #     if st.button("← Back to Missing Data Review", key=f"back_from_edit_{record_id}"):
+    #         # Clear edit mode
+    #         if f"edit_missing_record_{record_id}" in st.session_state:
+    #             st.session_state[f"edit_missing_record_{record_id}"] = False
+    #         if f"edit_missing_data_{record_id}" in st.session_state:
+    #             del st.session_state[f"edit_missing_data_{record_id}"]
+    #         if "current_editing_record_id" in st.session_state:
+    #             del st.session_state["current_editing_record_id"]
+    #         if "current_editing_from" in st.session_state:
+    #             del st.session_state["current_editing_from"]
+    #         st.rerun()
+    
+    # st.markdown("---")
+    
+    # Get record data from session state or database
+    if f"edit_missing_data_{record_id}" in st.session_state:
+        record = st.session_state[f"edit_missing_data_{record_id}"]
+    else:
+        # Fetch from database
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT id, criteria, energy_method, direction, paragraph, user, status, 
+                   scale, climate, location, building_use, approach, sample_size
+            FROM energy_data 
+            WHERE id = ?
+        ''', (record_id,))
+        record = cursor.fetchone()
+        
+        if not record:
+            st.error(f"Record {record_id} not found")
+            return
+    
+    # Convert record tuple to dict
+    _, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
+    
+    record_data = {
+        'criteria': criteria,
+        'energy_method': energy_method,
+        'direction': direction,
+        'paragraph': paragraph,
+        'user': user,
+        'status': status,
+        'scale': scale,
+        'climate': climate,
+        'location': location,
+        'building_use': building_use,
+        'approach': approach,
+        'sample_size': sample_size
+    }
+    
+    # Use the unified edit form with the correct dropdowns
+    # Define callback to clear edit mode
+    def clear_edit_mode():
+        if f"edit_missing_record_{record_id}" in st.session_state:
+            st.session_state[f"edit_missing_record_{record_id}"] = False
+        if f"edit_missing_data_{record_id}" in st.session_state:
+            del st.session_state[f"edit_missing_data_{record_id}"]
+        if "current_editing_record_id" in st.session_state:
+            del st.session_state["current_editing_record_id"]
+        if "current_editing_from" in st.session_state:
+            del st.session_state["current_editing_from"]
+    
+    # Use from_missing_data=True to maintain proper context
+    saved = display_unified_edit_form(record_id, record_data, is_pending=False, 
+                                     clear_edit_callback=clear_edit_mode, from_missing_data=True)
+    
+    if saved:
+        # Clear edit mode on successful save
+        clear_edit_mode()
+        time.sleep(1)
+        st.rerun()
+
+def fix_auto_increment():
+    global conn
+    cursor = conn.cursor()
+    
+    # Check if id column exists and has AUTOINCREMENT
+    cursor.execute("PRAGMA table_info(energy_data)")
+    columns = cursor.fetchall()
+    
+    id_col = None
+    for col in columns:
+        if col[1] == 'id':
+            id_col = col
+            break
+    
+    if id_col:
+        # Check if it's INTEGER PRIMARY KEY (SQLite auto-increments these)
+        if 'INTEGER' in str(id_col[2]).upper() and id_col[5] == 1:
+            st.success("id column is already INTEGER PRIMARY KEY (auto-increments in SQLite)")
+            return True
+        else:
+            # Need to recreate the table
+            st.warning("id column exists but not configured for auto-increment")
+    
+    # If no id column or not auto-increment, add one
+    # First, check if we have data
+    cursor.execute("SELECT COUNT(*) FROM energy_data")
+    count = cursor.fetchone()[0]
+    
+    if count > 0:
+        # We have data, need to preserve it
+        cursor.execute("ALTER TABLE energy_data RENAME TO energy_data_old")
+        
+        # Create new table with auto-increment id
+        cursor.execute('''
+            CREATE TABLE energy_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id TEXT,
+                criteria TEXT,
+                energy_method TEXT,
+                direction TEXT,
+                paragraph TEXT,
+                status TEXT,
+                user TEXT,
+                scale TEXT,
+                climate TEXT,
+                location TEXT,
+                building_use TEXT,
+                climate_multi TEXT,
+                approach TEXT,
+                sample_size TEXT
+            )
+        ''')
+        
+        # Copy all data except id (let SQLite assign new ones)
+        cursor.execute('''
+            INSERT INTO energy_data (
+                group_id, criteria, energy_method, direction, paragraph,
+                status, user, scale, climate, location, building_use,
+                climate_multi, approach, sample_size
+            )
+            SELECT 
+                group_id, criteria, energy_method, direction, paragraph,
+                status, user, scale, climate, location, building_use,
+                climate_multi, approach, sample_size
+            FROM energy_data_old
+        ''')
+        
+        cursor.execute("DROP TABLE energy_data_old")
+        conn.commit()
+        st.success(f"Table restructured! {count} records migrated with new auto-increment IDs.")
+    else:
+        # No data, just recreate the table
+        cursor.execute("DROP TABLE energy_data")
+        cursor.execute('''
+            CREATE TABLE energy_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id TEXT,
+                criteria TEXT,
+                energy_method TEXT,
+                direction TEXT,
+                paragraph TEXT,
+                status TEXT DEFAULT 'pending',
+                user TEXT,
+                scale TEXT,
+                climate TEXT,
+                location TEXT,
+                building_use TEXT,
+                climate_multi TEXT,
+                approach TEXT,
+                sample_size TEXT
+            )
+        ''')
+        conn.commit()
+        st.success("Table created with auto-increment ID column.")
+    
+    return True
+
+#fix_auto_increment()
+
+def display_simple_edit_form(record_id, record_data, from_missing_data=False):
+    """Simplified edit form that avoids key conflicts"""
+    global conn
+    import time  # ADD THIS IMPORT HERE
+    import random  # ADD THIS TOO FOR CONSISTENCY
+    
+    # Use a unique session key for this edit form
+    if f"edit_form_session_{record_id}" not in st.session_state:
+        import time
+        import random
+        st.session_state[f"edit_form_session_{record_id}"] = f"{int(time.time())}_{random.randint(1000, 9999)}"
+    
+    session_key = st.session_state[f"edit_form_session_{record_id}"]
+    
+    # Edit form layout
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Determinant
+        new_criteria = st.text_input("Determinant", 
+                                    value=record_data['criteria'], 
+                                    key=f"simple_criteria_{record_id}_{session_key}")
+        
+        # Energy Output
+        new_energy_method = st.text_input("Energy Output", 
+                                        value=record_data['energy_method'], 
+                                        key=f"simple_energy_{record_id}_{session_key}")
+        
+        # Direction
+        new_direction = st.radio("Direction", ["Increase", "Decrease"], 
+                                index=0 if record_data['direction'] == "Increase" else 1,
+                                key=f"simple_direction_{record_id}_{session_key}", horizontal=True)
+        
+        # Scale (simplified - just text input)
+        new_scale = st.text_input("Scale", 
+                                value=record_data['scale'] if record_data['scale'] else "", 
+                                key=f"simple_scale_{record_id}_{session_key}")
+        
+        # Location
+        new_location = st.text_input("Location", 
+                                    value=record_data['location'] if record_data['location'] else "", 
+                                    key=f"simple_location_{record_id}_{session_key}")
+        
+        # Building Use
+        new_building_use = st.text_input("Building Use", 
+                                        value=record_data['building_use'] if record_data['building_use'] else "", 
+                                        key=f"simple_building_use_{record_id}_{session_key}")
+    
+    with col2:
+        # Climate (simplified - just text input)
+        new_climate = st.text_input("Climate Code", 
+                                  value=record_data['climate'] if record_data['climate'] else "", 
+                                  key=f"simple_climate_{record_id}_{session_key}")
+        
+        # Approach
+        approach_options = ["Select approach", "Top-down", "Bottom-up", "Hybrid (combined top-down and bottom-up)"]
+        current_approach = record_data['approach'] if record_data['approach'] else "Select approach"
+        current_approach_index = approach_options.index(current_approach) if current_approach in approach_options else 0
+        
+        selected_approach = st.selectbox("Approach", 
+                                       options=approach_options,
+                                       index=current_approach_index,
+                                       key=f"simple_approach_{record_id}_{session_key}")
+        
+        # Sample Size
+        new_sample_size = st.text_input("Sample Size", 
+                                       value=record_data['sample_size'] if record_data['sample_size'] else "", 
+                                       key=f"simple_sample_size_{record_id}_{session_key}")
+        
+        # Status
+        status_options = ["approved", "rejected", "pending"]
+        current_status = record_data['status'] if record_data['status'] in status_options else "approved"
+        new_status = st.selectbox("Status", 
+                                options=status_options,
+                                index=status_options.index(current_status),
+                                key=f"simple_status_{record_id}_{session_key}")
+    
+    # Paragraph content
+    st.write("**Study Content:**")
+    new_paragraph = st.text_area("Content", 
+                                value=record_data['paragraph'], 
+                                height=150, 
+                                key=f"simple_paragraph_{record_id}_{session_key}")
+    
+    # Action buttons
+    col_save, col_cancel = st.columns(2)
+    
+    with col_save:
+        if st.button("💾 Save Changes", key=f"simple_save_{record_id}_{session_key}", type="primary", use_container_width=True):
+            # Save to database
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE energy_data 
+                SET criteria = ?, energy_method = ?, direction = ?, paragraph = ?,
+                    scale = ?, climate = ?, location = ?, building_use = ?, approach = ?,
+                    sample_size = ?, status = ?
+                WHERE id = ?
+            ''', (
+                new_criteria,
+                new_energy_method, 
+                new_direction,
+                new_paragraph,
+                new_scale,
+                new_climate,
+                new_location,
+                new_building_use,
+                selected_approach if selected_approach != "Select approach" else None,
+                new_sample_size,
+                new_status,
+                record_id
+            ))
+            
+            conn.commit()
+            
+            # Clear session state
+            if f"edit_form_session_{record_id}" in st.session_state:
+                del st.session_state[f"edit_form_session_{record_id}"]
+            if f"edit_missing_record_{record_id}" in st.session_state:
+                st.session_state[f"edit_missing_record_{record_id}"] = False
+            if f"edit_missing_data_{record_id}" in st.session_state:
+                del st.session_state[f"edit_missing_data_{record_id}"]
+            if "current_editing_record_id" in st.session_state:
+                del st.session_state["current_editing_record_id"]
+            if "current_editing_from" in st.session_state:
+                del st.session_state["current_editing_from"]
+            
+            st.success(f"✅ Record {record_id} updated successfully!")
+            time.sleep(1)
+            st.rerun()
+    
+    with col_cancel:
+        if st.button("❌ Cancel", key=f"simple_cancel_{record_id}_{session_key}", use_container_width=True):
+            # Clear session state
+            if f"edit_form_session_{record_id}" in st.session_state:
+                del st.session_state[f"edit_form_session_{record_id}"]
+            if f"edit_missing_record_{record_id}" in st.session_state:
+                st.session_state[f"edit_missing_record_{record_id}"] = False
+            if f"edit_missing_data_{record_id}" in st.session_state:
+                del st.session_state[f"edit_missing_data_{record_id}"]
+            if "current_editing_record_id" in st.session_state:
+                del st.session_state["current_editing_record_id"]
+            if "current_editing_from" in st.session_state:
+                del st.session_state["current_editing_from"]
+            
+            st.rerun()
+
+def display_missing_record(item, category):
+    """Display a record with missing data and edit options"""
+    record = item['record']
+    record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
+    
+    with st.expander(f"Record {record_id}: {criteria} → {energy_method} ({direction})", expanded=False):
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            st.write(f"**Missing:** {', '.join(item['missing_fields'])}")
+            st.write(f"**Scale:** {scale if scale else '❌ Missing'}")
+            st.write(f"**Climate:** {climate if climate else '❌ Missing'}")
+            st.write(f"**Location:** {location if location else '❌ Missing'}")
+            st.write(f"**Building Use:** {building_use if building_use else '❌ Missing'}")
+            st.write(f"**Approach:** {approach if approach else '❌ Missing'}")
+            st.write(f"**Sample Size:** {sample_size if sample_size else '❌ Missing'}")
+            st.write(f"**Status:** {status}")
+            st.write(f"**Submitted by:** {user}")
+        
+        with col2:
+            # Edit button - Use modal approach
+            unique_key = f"edit_missing_{record_id}_{category}_{hash(str(record))}"
+            if st.button("✏️ Edit", key=unique_key, use_container_width=True):
+                # Store the record data and set edit mode
+                st.session_state[f"edit_missing_data_{record_id}"] = record
+                # Store a flag to indicate which record is being edited
+                st.session_state["current_editing_record_id"] = record_id
+                st.session_state["current_editing_from"] = "missing_data"
+                st.rerun()
+            
+            # Mark as pending review button
+            pending_key = f"pending_missing_{record_id}_{category}_{hash(str(record))}"
+            if status != "pending":
+                if st.button("⏳ Mark for Review", key=pending_key, use_container_width=True):
+                    cursor_edit = conn.cursor()
+                    cursor_edit.execute("UPDATE energy_data SET status = 'pending' WHERE id = ?", (record_id,))
+                    conn.commit()
+                    st.success(f"Record {record_id} marked for review")
+                    time.sleep(1)
+                    st.rerun()
+
+
 def review_missing_data():
     """Review and edit records with missing data - no filters, just clean display"""
     global conn
     st.subheader("📋 Missing Data Review")
+    
+    # Check if we need to show an edit modal at the TOP
+    current_editing_record_id = st.session_state.get("current_editing_record_id")
+    current_editing_from = st.session_state.get("current_editing_from")
+    
+    # If we're editing a record, show the modal at the TOP and return
+    if current_editing_record_id and current_editing_from == "missing_data":
+        show_edit_modal(current_editing_record_id, from_missing_data=True)
+        return  # Stop rendering the rest of the missing data review
     
     st.markdown("""
     This section helps you find and fix records with missing data. 
@@ -869,95 +1263,48 @@ def review_missing_data():
         record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
         
         missing_fields = []
-        missing_count = 0
         
-        # Check each field
         if scale in ["Awaiting data", "Not Specified", "", None] or not scale:
             missing_fields.append("Scale")
-            missing_count += 1
         
         if climate in ["Awaiting data", "Not Specified", "", None] or not climate:
             missing_fields.append("Climate")
-            missing_count += 1
         
         if location in ["", None] or not location:
             missing_fields.append("Location")
-            missing_count += 1
         
         if building_use in ["", None] or not building_use:
             missing_fields.append("Building Use")
-            missing_count += 1
         
         if approach in ["", None] or not approach:
             missing_fields.append("Approach")
-            missing_count += 1
         
         if sample_size in ["", None] or not sample_size:
             missing_fields.append("Sample Size")
-            missing_count += 1
         
-        # Categorize
-        if missing_count > 0:
-            record_with_info = {
+        # Categorize the record
+        if missing_fields:
+            item = {
                 'record': record,
                 'missing_fields': missing_fields,
-                'missing_count': missing_count
+                'missing_count': len(missing_fields)
             }
             
-            # Add to specific categories
             if "Scale" in missing_fields:
-                records_missing_scale.append(record_with_info)
+                records_missing_scale.append(item)
             if "Climate" in missing_fields:
-                records_missing_climate.append(record_with_info)
+                records_missing_climate.append(item)
             if "Location" in missing_fields:
-                records_missing_location.append(record_with_info)
+                records_missing_location.append(item)
             if "Building Use" in missing_fields:
-                records_missing_building_use.append(record_with_info)
+                records_missing_building_use.append(item)
             if "Approach" in missing_fields:
-                records_missing_approach.append(record_with_info)
+                records_missing_approach.append(item)
             if "Sample Size" in missing_fields:
-                records_missing_sample_size.append(record_with_info)
+                records_missing_sample_size.append(item)
             
-            if missing_count >= 2:
-                records_multiple_missing.append(record_with_info)
-    
-    #Display statistics
-    # col1, col2, col3, col4, col5, col6 = st.columns(6)
-    # with col1:
-    #     st.metric("Missing Scale", len(records_missing_scale))
-    # with col2:
-    #     st.metric("Missing Climate", len(records_missing_climate))
-    # with col3:
-    #     st.metric("Missing Location", len(records_missing_location))
-    # with col4:
-    #     st.metric("Missing Building Use", len(records_missing_building_use))
-    # with col5:
-    #     st.metric("Missing Approach", len(records_missing_approach))
-    # with col6:
-    #     st.metric("Missing Sample Size", len(records_missing_sample_size))
-    
-    # st.metric("Multiple Missing Fields", len(records_multiple_missing))
-    # st.metric("Total Records", len(all_records))
-    
-    # # Quick actions
-    # st.markdown("---")
-    # col_btn1, col_btn2, col_btn3 = st.columns(3)
-    # with col_btn1:
-    #     if st.button("🔄 Refresh Data", key="missing_refresh", use_container_width=True):
-    #         st.rerun()
-    # with col_btn2:
-    #     if st.button("📊 Show All Statistics", key="missing_stats", use_container_width=True):
-    #         show_complete_statistics(all_records, records_missing_scale, records_missing_climate, 
-    #                                records_missing_location, records_missing_building_use,
-    #                                records_missing_approach, records_missing_sample_size,
-    #                                records_multiple_missing)
-    # with col_btn3:
-    #     if st.button("🔍 View Table Schema", key="missing_schema", use_container_width=True):
-    #         cursor.execute("PRAGMA table_info(energy_data)")
-    #         columns_info = cursor.fetchall()
-    #         st.info("**Current Table Columns:**")
-    #         for col in columns_info:
-    #             st.write(f"- {col[1]} ({col[2]})")
+            if len(missing_fields) >= 2:
+                records_multiple_missing.append(item)
     
     # Create tabs for different missing data types
     st.markdown("---")
@@ -971,6 +1318,7 @@ def review_missing_data():
         f"Multiple ({len(records_multiple_missing)})"
     ])
     
+    # Display records in each tab
     # Tab 1: Missing Scale
     with missing_tabs[0]:
         if records_missing_scale:
@@ -1036,82 +1384,15 @@ def review_missing_data():
         else:
             st.success("🎉 No records with multiple missing fields!")
     
+    # Show complete statistics (optional)
+    if all_records:
+        show_complete_statistics(all_records, records_missing_scale, records_missing_climate, 
+                               records_missing_location, records_missing_building_use,
+                               records_missing_approach, records_missing_sample_size, 
+                               records_multiple_missing)
+    
     # Close the connection
     conn_local.close()
-
-
-def display_missing_record(item, category):
-    """Display a record with missing data and edit options"""
-    record = item['record']
-    record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
-    
-    with st.expander(f"Record {record_id}: {criteria} → {energy_method} ({direction})", expanded=False):
-        col1, col2 = st.columns([3, 1])
-        
-        with col1:
-            st.write(f"**Missing:** {', '.join(item['missing_fields'])}")
-            st.write(f"**Scale:** {scale if scale else '❌ Missing'}")
-            st.write(f"**Climate:** {climate if climate else '❌ Missing'}")
-            st.write(f"**Location:** {location if location else '❌ Missing'}")
-            st.write(f"**Building Use:** {building_use if building_use else '❌ Missing'}")
-            st.write(f"**Approach:** {approach if approach else '❌ Missing'}")
-            st.write(f"**Sample Size:** {sample_size if sample_size else '❌ Missing'}")
-            st.write(f"**Status:** {status}")
-            st.write(f"**Submitted by:** {user}")
-        
-        with col2:
-            # Edit button - ADD UNIQUE SUFFIX BASED ON CATEGORY AND TIMESTAMP
-            unique_key = f"edit_missing_{record_id}_{category}_{hash(str(record))}"
-            if st.button("✏️ Edit", key=unique_key, use_container_width=True):
-                # Store the record ID for editing
-                st.session_state[f"edit_missing_record_{record_id}"] = True
-                st.rerun()
-            
-            # Mark as pending review button - ALSO MAKE UNIQUE
-            pending_key = f"pending_missing_{record_id}_{category}_{hash(str(record))}"
-            if status != "pending":
-                if st.button("⏳ Mark for Review", key=pending_key, use_container_width=True):
-                    cursor_edit = conn.cursor()
-                    cursor_edit.execute("UPDATE energy_data SET status = 'pending' WHERE id = ?", (record_id,))
-                    conn.commit()
-                    st.success(f"Record {record_id} marked for review")
-                    time.sleep(1)
-                    st.rerun()
-        
-        # If edit mode is active, show edit form
-        if st.session_state.get(f"edit_missing_record_{record_id}"):
-            display_edit_form(record_id, record)
-
-
-def display_edit_form(record_id, record):
-    """Display edit form for a record in missing data review"""
-    st.markdown("---")
-    
-    # Convert record tuple to dict
-    _, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
-    
-    record_data = {
-        'criteria': criteria,
-        'energy_method': energy_method,
-        'direction': direction,
-        'paragraph': paragraph,
-        'user': user,
-        'status': status,
-        'scale': scale,
-        'climate': climate,
-        'location': location,
-        'building_use': building_use,
-        'approach': approach,
-        'sample_size': sample_size
-    }
-    
-    saved = display_unified_edit_form(record_id, record_data, is_pending=False)
-    if saved:
-        # Clear edit mode
-        st.session_state[f"edit_missing_record_{record_id}"] = False
-        time.sleep(1)
-        st.rerun()
-
 
 def show_complete_statistics(all_records, missing_scale, missing_climate, missing_location, 
                            missing_building_use, missing_approach, missing_sample_size, missing_multiple):
@@ -2838,18 +3119,25 @@ def process_confirmed_matches(confirmed_matches, excel_df):
     return updated_count
     
 # UNIFIED EDIT FORM FUNCTION
-def display_unified_edit_form(record_id, record_data=None, is_pending=False):
+def display_unified_edit_form(record_id, record_data=None, is_pending=False, clear_edit_callback=None, from_missing_data=False):
     """
     Unified edit form for all admin editing interfaces
-    record_data should be a dict with keys: criteria, energy_method, direction, paragraph, 
-    status, scale, climate, location, building_use, approach, sample_size
+    from_missing_data: Flag to indicate if we're editing from the Missing Data Review tab
     """
     global conn
+    
+    # Generate a unique session ID for this edit session to avoid key conflicts
+    if f"edit_session_{record_id}" not in st.session_state:
+        import time
+        import random
+        st.session_state[f"edit_session_{record_id}"] = f"{int(time.time())}_{random.randint(1000, 9999)}"
+    
+    session_id = st.session_state[f"edit_session_{record_id}"]
     
     if not record_data:
         # Fetch record from database if not provided
         cursor = conn.cursor()
-        cursor.execute('''
+        cursor.execute('''  
             SELECT id, criteria, energy_method, direction, paragraph, user, status, 
                    scale, climate, location, building_use, approach, sample_size
             FROM energy_data 
@@ -2876,26 +3164,26 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False):
             'sample_size': record[12]
         }
     
-    st.subheader(f"✏️ Editing Record {record_id}")
+    #st.subheader(f"✏️ Editing Record {record_id}")
     
-    # Edit form layout
+    # Edit form layout - ALL KEYS NOW INCLUDE SESSION ID
     col1, col2 = st.columns(2)
     
     with col1:
         # Determinant (free text input for flexibility)
         new_criteria = st.text_input("Determinant", 
                                     value=record_data['criteria'], 
-                                    key=f"unified_criteria_{record_id}")
+                                    key=f"unified_criteria_{record_id}_{session_id}")
         
         # Energy Output (free text input for flexibility)
         new_energy_method = st.text_input("Energy Output", 
                                         value=record_data['energy_method'], 
-                                        key=f"unified_energy_method_{record_id}")
+                                        key=f"unified_energy_method_{record_id}_{session_id}")
         
         # Direction
         new_direction = st.radio("Direction", ["Increase", "Decrease"], 
                                 index=0 if record_data['direction'] == "Increase" else 1,
-                                key=f"unified_direction_{record_id}", horizontal=True)
+                                key=f"unified_direction_{record_id}_{session_id}", horizontal=True)
         
         # Scale (editable with dropdown)
         try:
@@ -2910,18 +3198,18 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False):
         selected_scale = st.selectbox("Scale", 
                                     options=scale_options_list,
                                     index=current_scale_index,
-                                    key=f"unified_scale_{record_id}")
+                                    key=f"unified_scale_{record_id}_{session_id}")
         
         new_scale = ""
         if selected_scale == "Add new scale":
             new_scale = st.text_input("Enter new scale", 
                                     value="", 
-                                    key=f"unified_new_scale_{record_id}")
+                                    key=f"unified_new_scale_{record_id}_{session_id}")
         
         # Location (editable)
         new_location = st.text_input("Location", 
                                     value=record_data['location'] if record_data['location'] else "", 
-                                    key=f"unified_location_{record_id}")
+                                    key=f"unified_location_{record_id}_{session_id}")
         
         # Building Use (editable with dropdown)
         building_use_options = ["Select building use", "Mixed use", "Residential", 
@@ -2932,13 +3220,13 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False):
         selected_building_use = st.selectbox("Building Use", 
                                            options=building_use_options,
                                            index=current_building_use_index,
-                                           key=f"unified_building_use_{record_id}")
+                                           key=f"unified_building_use_{record_id}_{session_id}")
         
         new_building_use = ""
         if selected_building_use == "Add new building use":
             new_building_use = st.text_input("Enter new building use", 
                                            value="", 
-                                           key=f"unified_new_building_use_{record_id}")
+                                           key=f"unified_new_building_use_{record_id}_{session_id}")
     
     with col2:
         # Climate (editable with formatted dropdown)
@@ -2966,13 +3254,13 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False):
         selected_climate = st.selectbox("Climate", 
                                         options=climate_options_list,
                                         index=current_climate_index,
-                                        key=f"unified_climate_{record_id}")
+                                        key=f"unified_climate_{record_id}_{session_id}")
         
         new_climate = ""
         if selected_climate == "Add new climate":
             new_climate = st.text_input("Enter new climate code", 
                                         value="", 
-                                        key=f"unified_new_climate_{record_id}")
+                                        key=f"unified_new_climate_{record_id}_{session_id}")
         
         # Approach (editable with specific options)
         approach_options = ["Select approach", "Top-down", "Bottom-up", "Hybrid (combined top-down and bottom-up)"]
@@ -2982,12 +3270,12 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False):
         selected_approach = st.selectbox("Approach", 
                                        options=approach_options,
                                        index=current_approach_index,
-                                       key=f"unified_approach_{record_id}")
+                                       key=f"unified_approach_{record_id}_{session_id}")
         
         # Sample Size (editable)
         new_sample_size = st.text_input("Sample Size", 
                                         value=record_data['sample_size'] if record_data['sample_size'] else "", 
-                                        key=f"unified_sample_size_{record_id}")
+                                        key=f"unified_sample_size_{record_id}_{session_id}")
         
         # Status (editable) - only for non-pending records
         if not is_pending:
@@ -2996,7 +3284,7 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False):
             new_status = st.selectbox("Status", 
                                     options=status_options,
                                     index=status_options.index(current_status),
-                                    key=f"unified_status_{record_id}")
+                                    key=f"unified_status_{record_id}_{session_id}")
         else:
             new_status = "pending"  # Keep as pending for pending records
     
@@ -3005,15 +3293,15 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False):
     new_paragraph = st.text_area("Content", 
                                 value=record_data['paragraph'], 
                                 height=150, 
-                                key=f"unified_paragraph_{record_id}")
+                                key=f"unified_paragraph_{record_id}_{session_id}")
     
-    # Action buttons
+    # Action buttons - also include session ID
     col_save, col_cancel = st.columns(2)
     
     saved = False
     
     with col_save:
-        if st.button("💾 Save Changes", key=f"unified_save_{record_id}", type="primary", use_container_width=True):
+        if st.button("💾 Save Changes", key=f"unified_save_{record_id}_{session_id}", type="primary", use_container_width=True):
             # Prepare final values
             final_scale = new_scale if selected_scale == "Add new scale" else (
                 selected_scale if selected_scale != "Select scale" else record_data['scale'])
@@ -3061,8 +3349,45 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False):
             st.success(f"✅ Record {record_id} updated successfully!")
     
     with col_cancel:
-        if st.button("❌ Cancel", key=f"unified_cancel_{record_id}", use_container_width=True):
+        if st.button("❌ Cancel", key=f"unified_cancel_{record_id}_{session_id}", use_container_width=True):
+            # Clear edit mode - use callback if provided, otherwise use session state
+            if clear_edit_callback:
+                clear_edit_callback()
+            else:
+                # Default behavior: clear session state flags
+                if f"edit_missing_record_{record_id}" in st.session_state:
+                    st.session_state[f"edit_missing_record_{record_id}"] = False
+                if f"admin_pending_edit_{record_id}" in st.session_state:
+                    st.session_state[f"admin_pending_edit_{record_id}"] = False
+                if f"admin_full_edit_{record_id}" in st.session_state:
+                    st.session_state[f"admin_full_edit_{record_id}"] = False
+                if f"edit_data_{record_id}" in st.session_state:
+                    del st.session_state[f"edit_data_{record_id}"]
+            
+            # Clear the session ID
+            if f"edit_session_{record_id}" in st.session_state:
+                del st.session_state[f"edit_session_{record_id}"]
+            
+            # Clear the global edit flags if we're in missing data review
+            if "admin_editing_in_missing_data" in st.session_state:
+                del st.session_state["admin_editing_in_missing_data"]
+            if "admin_current_edit_record_id" in st.session_state:
+                del st.session_state["admin_current_edit_record_id"]
+            
+            # Force rerun
             st.rerun()
+    
+    # If we saved, clear edit flags and session ID
+    if saved:
+        # Clear the session ID
+        if f"edit_session_{record_id}" in st.session_state:
+            del st.session_state[f"edit_session_{record_id}"]
+        
+        # Clear the global edit flags if we're in missing data review
+        if "admin_editing_in_missing_data" in st.session_state:
+            del st.session_state["admin_editing_in_missing_data"]
+        if "admin_current_edit_record_id" in st.session_state:
+            del st.session_state["admin_current_edit_record_id"]
     
     return saved
 
@@ -3635,8 +3960,13 @@ def manage_scale_climate_data():
                 'sample_size': sample_size
             })
             
-            # Use the unified edit form
-            saved = display_unified_edit_form(record_id, edit_data, is_pending=False)
+            # Define callback to clear edit mode
+            def clear_full_edit_mode():
+                st.session_state[f"admin_full_edit_{record_id}"] = False
+                if f"edit_data_{record_id}" in st.session_state:
+                    del st.session_state[f"edit_data_{record_id}"]
+            
+            saved = display_unified_edit_form(record_id, edit_data, is_pending=False, clear_edit_callback=clear_full_edit_mode)
             if saved:
                 # Clear edit mode and stored data
                 st.session_state[f"admin_full_edit_{record_id}"] = False
@@ -3703,11 +4033,64 @@ def review_pending_data():
     global conn
     st.subheader("Review Pending Data Submissions")
     
-    # Create a local database connection and cursor
-    conn_local = sqlite3.connect(db_file)
-    cursor = conn_local.cursor()
+    # DEBUG: Add debug mode toggle
+    #debug_mode = st.sidebar.checkbox("🔧 Debug Mode", value=False)
+    debug_mode = False
+
+    # Check if we have a pending action to execute
+    if "pending_action" in st.session_state:
+        record_id = st.session_state.pending_action.get("record_id")
+        action = st.session_state.pending_action.get("action")
+        
+        if record_id and action:
+            try:
+                cursor = conn.cursor()
+                if action == "approve":
+                    cursor.execute("UPDATE energy_data SET status = 'approved' WHERE id = ?", (record_id,))
+                    if debug_mode:
+                        st.sidebar.success(f"✅ Approved record {record_id}")
+                elif action == "reject":
+                    cursor.execute("UPDATE energy_data SET status = 'rejected' WHERE id = ?", (record_id,))
+                    if debug_mode:
+                        st.sidebar.success(f"❌ Rejected record {record_id}")
+                
+                conn.commit()
+                
+                # Verify the update
+                cursor.execute("SELECT status FROM energy_data WHERE id = ?", (record_id,))
+                updated_status = cursor.fetchone()[0]
+                if debug_mode:
+                    st.sidebar.info(f"Verified: Record {record_id} status = {updated_status}")
+                
+                # Clear the pending action
+                del st.session_state.pending_action
+                
+                # Show success message
+                st.success(f"Record {record_id} {action}d successfully!")
+                
+                # Rerun to refresh
+                time.sleep(1)
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"Error processing {action} for record {record_id}: {str(e)}")
+                if debug_mode:
+                    st.sidebar.error(f"Error details: {e}")
     
-    # Fetch only pending records - EXCLUDE EMPTY/ZERO RECORDS
+    # Function to handle button clicks
+    def handle_button_click(record_id, action):
+        """Store the action in session state for execution after rerun"""
+        st.session_state.pending_action = {
+            "record_id": record_id,
+            "action": action
+        }
+        if debug_mode:
+            st.sidebar.write(f"📝 Button clicked: {action} for record {record_id}")
+    
+    # Use the global connection directly
+    cursor = conn.cursor()
+    
+    # Fetch only pending records
     cursor.execute('''
         SELECT id, criteria, energy_method, direction, paragraph, user, status 
         FROM energy_data 
@@ -3726,91 +4109,162 @@ def review_pending_data():
     
     if not pending_records:
         st.success("🎉 No pending submissions! All caught up.")
-        conn_local.close()  # Close the local connection
         return
     
-    for record in pending_records:
+    # Display a clear debug panel if enabled
+    if debug_mode:
+        with st.sidebar.expander("🔍 Debug Info", expanded=True):
+            st.write("Session state keys:", list(st.session_state.keys()))
+            if "pending_action" in st.session_state:
+                st.write("Pending action:", st.session_state.pending_action)
+    
+    # Create a refresh button at the top
+    if st.button("🔄 Refresh List", key="refresh_top_main", use_container_width=True):
+        # Clear any edit modes
+        for key in list(st.session_state.keys()):
+            if key.startswith("admin_pending_edit_"):
+                del st.session_state[key]
+        st.rerun()
+    
+    st.markdown("---")
+    
+    # Display each record
+    for index, record in enumerate(pending_records):
         record_id, criteria, energy_method, direction, paragraph, user, status = record
         
-        st.markdown("---")
-        
-        # Header with Edit button
-        col_header1, col_header2 = st.columns([3, 1])
-        with col_header1:
-            st.write(f"**Record ID:** {record_id}, **Submitted by:** {user}")
-        
-        with col_header2:
-            edit_mode = st.session_state.get(f"admin_pending_edit_{record_id}", False)
+        # Create a container for each record
+        with st.container():
+            st.markdown(f"### 📄 Record #{record_id}")
             
-            if not edit_mode:
-                if st.button("✏️ Edit", key=f"admin_pending_edit_btn_{record_id}", use_container_width=True):
-                    st.session_state[f"admin_pending_edit_{record_id}"] = True
+            # Header with basic info
+            col_info, col_actions = st.columns([3, 1])
+            
+            with col_info:
+                st.write(f"**Submitted by:** {user}")
+                st.write(f"**Determinant:** {criteria}")
+                st.write(f"**Energy Output:** {energy_method}")
+                st.write(f"**Direction:** {direction}")
+            
+            with col_actions:
+                # Edit button with callback
+                edit_mode = st.session_state.get(f"admin_pending_edit_{record_id}", False)
+                
+                if not edit_mode:
+                    if st.button("✏️ Edit", key=f"edit_{record_id}_{index}", use_container_width=True):
+                        st.session_state[f"admin_pending_edit_{record_id}"] = True
+                        if debug_mode:
+                            st.sidebar.write(f"📝 Entering edit mode for record {record_id}")
+                        st.rerun()
+                else:
+                    if st.button("❌ Cancel Edit", key=f"cancel_edit_{record_id}_{index}", use_container_width=True):
+                        st.session_state[f"admin_pending_edit_{record_id}"] = False
+                        st.rerun()
+            
+            # Edit mode or view mode
+            if st.session_state.get(f"admin_pending_edit_{record_id}"):
+                # Edit Mode
+                edit_data = {
+                    'criteria': criteria,
+                    'energy_method': energy_method,
+                    'direction': direction,
+                    'paragraph': paragraph,
+                    'user': user,
+                    'status': status,
+                    'scale': None,
+                    'climate': None,
+                    'location': None,
+                    'building_use': None,
+                    'approach': None,
+                    'sample_size': None
+                }
+                
+                def clear_pending_edit_mode():
+                    st.session_state[f"admin_pending_edit_{record_id}"] = False
+                
+                saved = display_unified_edit_form(record_id, edit_data, is_pending=True, clear_edit_callback=clear_pending_edit_mode)
+                if saved:
+                    st.session_state[f"admin_pending_edit_{record_id}"] = False
+                    time.sleep(1)
                     st.rerun()
-        
-        if st.session_state.get(f"admin_pending_edit_{record_id}"):
-            # Use the unified edit form for pending records
-            record_data = {
-                'criteria': criteria,
-                'energy_method': energy_method,
-                'direction': direction,
-                'paragraph': paragraph,
-                'user': user,
-                'status': status,
-                'scale': None,  # Pending records won't have these
-                'climate': None,
-                'location': None,
-                'building_use': None,
-                'approach': None,
-                'sample_size': None
-            }
-            
-            saved = display_unified_edit_form(record_id, record_data, is_pending=True)
-            if saved:
-                st.session_state[f"admin_pending_edit_{record_id}"] = False
-                time.sleep(1)
-                st.rerun()
                     
-        else:
-            # View mode for pending records
-            # Display the relationship
-            st.markdown(f"<p>The following pending study shows that a {direction} (or presence) in {criteria} leads to <i>{'higher' if direction == 'Increase' else 'lower'}</i> {energy_method}.</p>", unsafe_allow_html=True)
+            else:
+                # View Mode - Display the content
+                st.markdown("**Submitted text:**")
+                st.text_area("Content", value=paragraph, height=150, 
+                           key=f"content_{record_id}", disabled=True, label_visibility="collapsed")
+                
+                # Approval/Rejection buttons with callbacks
+                col_approve, col_reject, col_status = st.columns([1, 1, 2])
+                
+                with col_approve:
+                    if st.button(f"✅ Approve", key=f"approve_{record_id}_{index}", 
+                               use_container_width=True, type="primary"):
+                        handle_button_click(record_id, "approve")
+                        st.rerun()
+                
+                with col_reject:
+                    if st.button(f"❌ Reject", key=f"reject_{record_id}_{index}", 
+                               use_container_width=True):
+                        handle_button_click(record_id, "reject")
+                        st.rerun()
+                
+                # with col_status:
+                #     status_badge_color = {
+                #         'pending': '🟡 Pending',
+                #         'approved': '🟢 Approved',
+                #         'rejected': '🔴 Rejected'
+                #     }
+                #     badge = status_badge_color.get(status, '⚪ Unknown')
+                #     st.markdown(f"**Status:** {badge}")
             
-            # Display the submitted text
-            st.write("**Submitted text:**")
-            st.text_area("Content", value=paragraph, height=150, key=f"admin_pending_content_{record_id}", disabled=True)
-            
-            # Admin approval/rejection buttons (view mode)
-            col1, col2, col3 = st.columns([1, 1, 2])
-            
-            with col1:
-                if st.button(f"✅ Approve", key=f"admin_approve_{record_id}", use_container_width=True, type="primary"):
-                    conn_edit = sqlite3.connect("my_database.db")
-                    cursor_edit = conn_edit.cursor()
-                    cursor_edit.execute("UPDATE energy_data SET status = 'approved' WHERE id = ?", (record_id,))
-                    conn_edit.commit()
-                    conn_edit.close()
-                    st.success(f"Record {record_id} approved and added to main database!")
-                    time.sleep(1)
-                    st.rerun()
-            
-            with col2:
-                if st.button(f"❌ Reject", key=f"admin_reject_{record_id}", use_container_width=True):
-                    conn_edit = sqlite3.connect("my_database.db")
-                    cursor_edit = conn_edit.cursor()
-                    cursor_edit.execute("UPDATE energy_data SET status = 'rejected' WHERE id = ?", (record_id,))
-                    conn_edit.commit()
-                    conn_edit.close()
-                    st.error(f"Record {record_id} rejected.")
-                    time.sleep(1)
-                    st.rerun()
+            st.markdown("---")
     
-    # Close the local connection
-    conn_local.close()
-    
-    # Quick actions
+    # Statistics section
     st.markdown("---")
-    if st.button("🔄 Refresh Pending List", key="admin_refresh_pending", use_container_width=True):
-        st.rerun()
+    
+    # Show statistics
+    cursor.execute("SELECT COUNT(*) FROM energy_data WHERE status = 'pending'")
+    pending_count = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM energy_data WHERE status = 'approved'")
+    approved_count = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM energy_data WHERE status = 'rejected'")
+    rejected_count = cursor.fetchone()[0]
+    
+    with st.expander("📊 Status Statistics", expanded=False):
+        st.write(f"**Pending:** {pending_count}")
+        st.write(f"**Approved:** {approved_count}")
+        st.write(f"**Rejected:** {rejected_count}")
+    
+    # Add a database health check
+    if debug_mode and st.sidebar.button("🔍 Check Database Health"):
+        try:
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = cursor.fetchall()
+            st.sidebar.write("Tables:", tables)
+            
+            cursor.execute("PRAGMA table_info(energy_data)")
+            columns = cursor.fetchall()
+            st.sidebar.write("Energy_data columns:", columns)
+            
+            # Check if status column exists
+            status_column_exists = any(col[1] == 'status' for col in columns)
+            st.sidebar.write(f"Status column exists: {status_column_exists}")
+            
+        except Exception as e:
+            st.sidebar.error(f"Database error: {e}")
+
+# Add this debug function
+def debug_record_status(record_id):
+    global conn
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, status FROM energy_data WHERE id = ?", (record_id,))
+    result = cursor.fetchone()
+    if result:
+        st.sidebar.write(f"Debug - Record {result[0]}: status = {result[1]}")
+    else:
+        st.sidebar.write(f"Debug - Record {record_id} not found")
 
 def user_dashboard():
     global conn
@@ -5101,7 +5555,6 @@ def render_spatialbuild_tab(enable_editing=False):
     
     render_unified_search_interface(enable_editing=enable_editing)
 
-# Then UPDATE your main app layout at the bottom to this:
 # MAIN APP LAYOUT - CLEAN AND ORGANIZED
 if st.session_state.logged_in:
     if st.session_state.current_user == "admin":
@@ -5111,18 +5564,33 @@ if st.session_state.logged_in:
         tab0, tab1, tab2 = tabs
         
         with tab0:
-            render_spatialbuild_tab(enable_editing=False)  # Edit button removed from here
+            render_spatialbuild_tab(enable_editing=False)
         
         with tab1:
             render_contribute_tab()
         
         with tab2:
+            # Check if we're currently editing a record in missing data
+            if st.session_state.get("admin_editing_in_missing_data", False):
+                # Show a back button to return to missing data review
+                if st.button("← Back to Missing Data Review"):
+                    # Clear edit flags
+                    record_id = st.session_state.get("admin_current_edit_record_id")
+                    if record_id and f"edit_missing_record_{record_id}" in st.session_state:
+                        st.session_state[f"edit_missing_record_{record_id}"] = False
+                    if "admin_editing_in_missing_data" in st.session_state:
+                        del st.session_state["admin_editing_in_missing_data"]
+                    if "admin_current_edit_record_id" in st.session_state:
+                        del st.session_state["admin_current_edit_record_id"]
+                    st.rerun()
+                st.markdown("---")
+            
             admin_dashboard()
         
         render_admin_sidebar()
 
     else:  
-        # Regular user view
+        # Regular user view (keep as is)
         tab_labels = ["SpatialBuild Energy", "Contribute", "Your Contributions"]
         tabs = st.tabs(tab_labels)
         tab0, tab1, tab2 = tabs
@@ -5139,7 +5607,7 @@ if st.session_state.logged_in:
         render_user_sidebar()
 
 else:  
-    # Not logged in view
+    # Not logged in view (keep as is)
     tab_labels = ["SpatialBuild Energy", "Contribute"]
     tabs = st.tabs(tab_labels)
     tab0, tab1 = tabs
