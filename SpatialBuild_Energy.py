@@ -789,11 +789,11 @@ def convert_urls_to_links(text):
     # URL patterns to match
     patterns = [
         # Standard http/https URLs
-        (r'(https?://\S+)', r'<a href="\1" target="_blank" style="color: #0066cc; text-decoration: none;">\1</a>'),
+       # (r'(https?://\S+)', r'<a href="\1" target="_blank" style="color: #0066cc; text-decoration: none;">\1</a>'),
         # www URLs (without http)
-        (r'\b(www\.\S+)\b', r'<a href="http://\1" target="_blank" style="color: #0066cc; text-decoration: none;">\1</a>'),
+       # (r'\b(www\.\S+)\b', r'<a href="http://\1" target="_blank" style="color: #0066cc; text-decoration: none;">\1</a>'),
         # doi.org links
-       # (r'\b(doi\.org/\S+)\b', r'<a href="https://\1" target="_blank" style="color: #0066cc; text-decoration: none;">\1</a>'),
+        (r'\b(doi\.org/\S+)\b', r'<a href="https://\1" target="_blank" style="color: #0066cc; text-decoration: none;">\1</a>'),
         # DOI numbers (10.xxx/xxx)
       #  (r'\b(10\.\d{4,9}/[-._;()/:A-Z0-9]+)\b', r'<a href="https://doi.org/\1" target="_blank" style="color: #0066cc; text-decoration: none;">\1</a>')
     ]
@@ -806,11 +806,11 @@ def convert_urls_to_links(text):
 
 def display_study_content(paragraph, record_id):
     """Simple display of study content"""
-    st.text_area(f"Study Content", value=paragraph, height=150, key=f"content_{record_id}", disabled=True)
     # Convert URLs to clickable links
     paragraph_with_links = convert_urls_to_links(paragraph)
     
-    # Display in a styled container
+    #st.text_area(f"Study Content", value=paragraph, height=150, key=f"content_{record_id}", disabled=False)
+    # # Display in a styled container
     st.markdown(
         f'''
         <div style="
