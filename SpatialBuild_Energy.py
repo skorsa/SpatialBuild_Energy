@@ -91,10 +91,11 @@ def query_approved_energy_outputs(conn):
         return cursor.fetchall()
 
 def contribute():
-        # Check if user is logged in
+    # Check if user is logged in
     if not st.session_state.get('logged_in') or not st.session_state.get('current_user'):
         st.warning("Please log in to contribute to the database.")
         return  # Exit the function early
+    
     # Fetch existing determinants and energy outputs from approved records
     approved_determinants = query_approved_criteria(conn)
     criteria_list = ["Select a Determinant", "Add new Determinant"] + [f"{row[0]}" for row in approved_determinants]
@@ -178,14 +179,13 @@ def contribute():
             key="new_paragraph"
         )
 
-        # In the save section, make sure you're using st.session_state.current_user:
-        # Add scale and climate fields before the save button
         st.markdown("---")
         st.subheader("Additional Information (Optional)")
 
-        col_scale, col_climate = st.columns(2)
+        # First row: Scale, Climate, and Location
+        col_1, col_2, col_3 = st.columns(3)
 
-        with col_scale:
+        with col_1:
             scale_options = query_dynamic_scale_options(conn)
             selected_scale = st.selectbox(
                 "Scale",
@@ -197,7 +197,7 @@ def contribute():
             if selected_scale == "Add new scale":
                 new_scale = st.text_input("Enter new scale", key="contribute_new_scale")
 
-        with col_climate:
+        with col_2:
             climate_options_data = query_dominant_climate_options(conn)
             climate_options = [formatted for formatted, color in climate_options_data]
             selected_climate = st.selectbox(
@@ -210,13 +210,48 @@ def contribute():
             if selected_climate == "Add new climate":
                 new_climate = st.text_input("Enter new climate code", key="contribute_new_climate")
 
-        # Location field
-        location = st.text_input("Location (optional)", key="contribute_location", 
-                                placeholder="e.g., United States, Europe, Specific city/region")
+        with col_3:
+            location = st.text_input("Location (optional)", key="contribute_location", 
+                                    placeholder="e.g., United States, Europe, Specific city/region")
+
+        # Second row: Building Use, Approach, and Sample Size
+        st.markdown("---")
+        col_4, col_5, col_6 = st.columns(3)
+
+        with col_4:
+            # Building Use dropdown
+            building_use_options = ["Select building use", "Mixed use", "Residential", 
+                                   "Unspecified / Other", "Commercial", "Add new building use"]
+            selected_building_use = st.selectbox(
+                "Building Use",
+                options=building_use_options,
+                key="contribute_building_use"
+            )
+            
+            new_building_use = ""
+            if selected_building_use == "Add new building use":
+                new_building_use = st.text_input("Enter new building use", key="contribute_new_building_use")
+
+        with col_5:
+            # Approach dropdown (3 specific options)
+            approach_options = ["Select approach", "Top-down", "Bottom-up", "Hybrid (combined top-down and bottom-up)"]
+            selected_approach = st.selectbox(
+                "Approach",
+                options=approach_options,
+                key="contribute_approach"
+            )
+
+        with col_6:
+            # Sample Size text field
+            sample_size = st.text_input(
+                "Sample Size (optional)", 
+                key="contribute_sample_size",
+                placeholder="e.g., 50 buildings, 1000 households, 5 cities"
+            )
 
         st.markdown("---")
 
-        # In the save section, make sure you're using st.session_state.current_user:
+        # Save button
         if st.button("Save", key="save_new_record"):
             # Save record only if text is provided
             if new_paragraph.strip():
@@ -232,10 +267,20 @@ def contribute():
                     # Remove emoji if present
                     final_climate = ''.join([c for c in final_climate if c.isalnum()])
 
-                # Save the record
+                # Prepare building use value
+                final_building_use = new_building_use if selected_building_use == "Add new building use" else selected_building_use
+                
+                # Prepare approach value
+                final_approach = selected_approach if selected_approach != "Select approach" else None
+                
+                # Prepare sample size value
+                final_sample_size = sample_size if sample_size.strip() else None
+
+                # Save the record with all fields
                 cursor.execute('''
-                    INSERT INTO energy_data (criteria, energy_method, direction, paragraph, status, user, scale, climate, location)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO energy_data (criteria, energy_method, direction, paragraph, status, user, 
+                                           scale, climate, location, building_use, approach, sample_size)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     new_determinant or st.session_state.selected_determinant_choice,
                     new_energy_output or st.session_state.selected_energy_output_choice,
@@ -245,7 +290,10 @@ def contribute():
                     st.session_state.current_user,
                     final_scale if final_scale != "Select scale" else "Awaiting data",
                     final_climate if final_climate != "Select climate" else "Awaiting data",
-                    location if location else None
+                    location if location else None,
+                    final_building_use if final_building_use != "Select building use" else None,
+                    final_approach,
+                    final_sample_size
                 ))
                 conn.commit()
 
@@ -642,9 +690,8 @@ def admin_dashboard():
     
     st.subheader("Admin Dashboard")
     
-    # Rest of your function remains the same...
     # Tab interface for different admin functions
-    tab1, tab2, tab3 = st.tabs(["Edit Records", "Review Pending Submissions", "Data Import"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Edit Records", "Review Pending Submissions", "Data Import", "Missing Data Review"])
     
     with tab1:
         # Use the original manage_scale_climate_data function here instead of enhanced version
@@ -657,6 +704,10 @@ def admin_dashboard():
     with tab3:
         # New import tab - use unique key
         import_location_climate_data_unique()
+    
+    with tab4:
+        # New Missing Data Review tab
+        review_missing_data()
 
 
 def admin_import_and_match_studies(uploaded_file):
@@ -774,6 +825,334 @@ def preprocess_study_name(study_name):
             clean_name = clean_name[len(prefix):].strip()
     
     return clean_name
+
+def review_missing_data():
+    """Review and edit records with missing data - no filters, just clean display"""
+    global conn
+    st.subheader("📋 Missing Data Review")
+    
+    st.markdown("""
+    This section helps you find and fix records with missing data. 
+    No filters needed - just browse through records that need attention.
+    """)
+    
+    # Create a local database connection
+    conn_local = sqlite3.connect(db_file)
+    cursor = conn_local.cursor()
+    
+    # Get all records with any missing data
+    cursor.execute('''
+        SELECT id, criteria, energy_method, direction, paragraph, user, status, 
+               scale, climate, location, building_use, approach, sample_size
+        FROM energy_data 
+        WHERE status NOT IN ("pending", "rejected")
+          AND paragraph IS NOT NULL 
+          AND paragraph != '' 
+          AND paragraph != '0' 
+          AND paragraph != '0.0'
+          AND paragraph != 'None'
+          AND LENGTH(TRIM(paragraph)) > 0
+        ORDER BY id
+    ''')
+    all_records = cursor.fetchall()
+    
+    # Categorize records by missing data
+    records_missing_scale = []
+    records_missing_climate = []
+    records_missing_location = []
+    records_missing_building_use = []
+    records_missing_approach = []
+    records_missing_sample_size = []
+    records_multiple_missing = []
+    
+    for record in all_records:
+        record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
+        
+        missing_fields = []
+        missing_count = 0
+        
+        # Check each field
+        if scale in ["Awaiting data", "Not Specified", "", None] or not scale:
+            missing_fields.append("Scale")
+            missing_count += 1
+        
+        if climate in ["Awaiting data", "Not Specified", "", None] or not climate:
+            missing_fields.append("Climate")
+            missing_count += 1
+        
+        if location in ["", None] or not location:
+            missing_fields.append("Location")
+            missing_count += 1
+        
+        if building_use in ["", None] or not building_use:
+            missing_fields.append("Building Use")
+            missing_count += 1
+        
+        if approach in ["", None] or not approach:
+            missing_fields.append("Approach")
+            missing_count += 1
+        
+        if sample_size in ["", None] or not sample_size:
+            missing_fields.append("Sample Size")
+            missing_count += 1
+        
+        # Categorize
+        if missing_count > 0:
+            record_with_info = {
+                'record': record,
+                'missing_fields': missing_fields,
+                'missing_count': missing_count
+            }
+            
+            # Add to specific categories
+            if "Scale" in missing_fields:
+                records_missing_scale.append(record_with_info)
+            if "Climate" in missing_fields:
+                records_missing_climate.append(record_with_info)
+            if "Location" in missing_fields:
+                records_missing_location.append(record_with_info)
+            if "Building Use" in missing_fields:
+                records_missing_building_use.append(record_with_info)
+            if "Approach" in missing_fields:
+                records_missing_approach.append(record_with_info)
+            if "Sample Size" in missing_fields:
+                records_missing_sample_size.append(record_with_info)
+            
+            if missing_count >= 2:
+                records_multiple_missing.append(record_with_info)
+    
+    #Display statistics
+    # col1, col2, col3, col4, col5, col6 = st.columns(6)
+    # with col1:
+    #     st.metric("Missing Scale", len(records_missing_scale))
+    # with col2:
+    #     st.metric("Missing Climate", len(records_missing_climate))
+    # with col3:
+    #     st.metric("Missing Location", len(records_missing_location))
+    # with col4:
+    #     st.metric("Missing Building Use", len(records_missing_building_use))
+    # with col5:
+    #     st.metric("Missing Approach", len(records_missing_approach))
+    # with col6:
+    #     st.metric("Missing Sample Size", len(records_missing_sample_size))
+    
+    # st.metric("Multiple Missing Fields", len(records_multiple_missing))
+    # st.metric("Total Records", len(all_records))
+    
+    # # Quick actions
+    # st.markdown("---")
+    # col_btn1, col_btn2, col_btn3 = st.columns(3)
+    # with col_btn1:
+    #     if st.button("🔄 Refresh Data", key="missing_refresh", use_container_width=True):
+    #         st.rerun()
+    # with col_btn2:
+    #     if st.button("📊 Show All Statistics", key="missing_stats", use_container_width=True):
+    #         show_complete_statistics(all_records, records_missing_scale, records_missing_climate, 
+    #                                records_missing_location, records_missing_building_use,
+    #                                records_missing_approach, records_missing_sample_size,
+    #                                records_multiple_missing)
+    # with col_btn3:
+    #     if st.button("🔍 View Table Schema", key="missing_schema", use_container_width=True):
+    #         cursor.execute("PRAGMA table_info(energy_data)")
+    #         columns_info = cursor.fetchall()
+    #         st.info("**Current Table Columns:**")
+    #         for col in columns_info:
+    #             st.write(f"- {col[1]} ({col[2]})")
+    
+    # Create tabs for different missing data types
+    st.markdown("---")
+    missing_tabs = st.tabs([
+        f"Scale ({len(records_missing_scale)})",
+        f"Climate ({len(records_missing_climate)})", 
+        f"Location ({len(records_missing_location)})",
+        f"Building Use ({len(records_missing_building_use)})",
+        f"Approach ({len(records_missing_approach)})",
+        f"Sample Size ({len(records_missing_sample_size)})",
+        f"Multiple ({len(records_multiple_missing)})"
+    ])
+    
+    # Tab 1: Missing Scale
+    with missing_tabs[0]:
+        if records_missing_scale:
+            st.write(f"**{len(records_missing_scale)} records missing scale data:**")
+            for item in records_missing_scale:
+                display_missing_record(item, "Scale")
+        else:
+            st.success("✅ All records have scale data!")
+    
+    # Tab 2: Missing Climate
+    with missing_tabs[1]:
+        if records_missing_climate:
+            st.write(f"**{len(records_missing_climate)} records missing climate data:**")
+            for item in records_missing_climate:
+                display_missing_record(item, "Climate")
+        else:
+            st.success("✅ All records have climate data!")
+    
+    # Tab 3: Missing Location
+    with missing_tabs[2]:
+        if records_missing_location:
+            st.write(f"**{len(records_missing_location)} records missing location data:**")
+            for item in records_missing_location:
+                display_missing_record(item, "Location")
+        else:
+            st.success("✅ All records have location data!")
+    
+    # Tab 4: Missing Building Use
+    with missing_tabs[3]:
+        if records_missing_building_use:
+            st.write(f"**{len(records_missing_building_use)} records missing building use data:**")
+            for item in records_missing_building_use:
+                display_missing_record(item, "Building Use")
+        else:
+            st.success("✅ All records have building use data!")
+    
+    # Tab 5: Missing Approach
+    with missing_tabs[4]:
+        if records_missing_approach:
+            st.write(f"**{len(records_missing_approach)} records missing approach data:**")
+            for item in records_missing_approach:
+                display_missing_record(item, "Approach")
+        else:
+            st.success("✅ All records have approach data!")
+    
+    # Tab 6: Missing Sample Size
+    with missing_tabs[5]:
+        if records_missing_sample_size:
+            st.write(f"**{len(records_missing_sample_size)} records missing sample size data:**")
+            for item in records_missing_sample_size:
+                display_missing_record(item, "Sample Size")
+        else:
+            st.success("✅ All records have sample size data!")
+    
+    # Tab 7: Multiple Missing
+    with missing_tabs[6]:
+        if records_multiple_missing:
+            # Sort by number of missing fields (most missing first)
+            records_multiple_missing.sort(key=lambda x: x['missing_count'], reverse=True)
+            st.write(f"**{len(records_multiple_missing)} records with 2+ missing fields:**")
+            for item in records_multiple_missing:
+                display_missing_record(item, "Multiple")
+        else:
+            st.success("🎉 No records with multiple missing fields!")
+    
+    # Close the connection
+    conn_local.close()
+
+
+def display_missing_record(item, category):
+    """Display a record with missing data and edit options"""
+    record = item['record']
+    record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
+    
+    with st.expander(f"Record {record_id}: {criteria} → {energy_method} ({direction})", expanded=False):
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            st.write(f"**Missing:** {', '.join(item['missing_fields'])}")
+            st.write(f"**Scale:** {scale if scale else '❌ Missing'}")
+            st.write(f"**Climate:** {climate if climate else '❌ Missing'}")
+            st.write(f"**Location:** {location if location else '❌ Missing'}")
+            st.write(f"**Building Use:** {building_use if building_use else '❌ Missing'}")
+            st.write(f"**Approach:** {approach if approach else '❌ Missing'}")
+            st.write(f"**Sample Size:** {sample_size if sample_size else '❌ Missing'}")
+            st.write(f"**Status:** {status}")
+            st.write(f"**Submitted by:** {user}")
+        
+        with col2:
+            # Edit button - ADD UNIQUE SUFFIX BASED ON CATEGORY AND TIMESTAMP
+            unique_key = f"edit_missing_{record_id}_{category}_{hash(str(record))}"
+            if st.button("✏️ Edit", key=unique_key, use_container_width=True):
+                # Store the record ID for editing
+                st.session_state[f"edit_missing_record_{record_id}"] = True
+                st.rerun()
+            
+            # Mark as pending review button - ALSO MAKE UNIQUE
+            pending_key = f"pending_missing_{record_id}_{category}_{hash(str(record))}"
+            if status != "pending":
+                if st.button("⏳ Mark for Review", key=pending_key, use_container_width=True):
+                    cursor_edit = conn.cursor()
+                    cursor_edit.execute("UPDATE energy_data SET status = 'pending' WHERE id = ?", (record_id,))
+                    conn.commit()
+                    st.success(f"Record {record_id} marked for review")
+                    time.sleep(1)
+                    st.rerun()
+        
+        # If edit mode is active, show edit form
+        if st.session_state.get(f"edit_missing_record_{record_id}"):
+            display_edit_form(record_id, record)
+
+
+def display_edit_form(record_id, record):
+    """Display edit form for a record in missing data review"""
+    st.markdown("---")
+    
+    # Convert record tuple to dict
+    _, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
+    
+    record_data = {
+        'criteria': criteria,
+        'energy_method': energy_method,
+        'direction': direction,
+        'paragraph': paragraph,
+        'user': user,
+        'status': status,
+        'scale': scale,
+        'climate': climate,
+        'location': location,
+        'building_use': building_use,
+        'approach': approach,
+        'sample_size': sample_size
+    }
+    
+    saved = display_unified_edit_form(record_id, record_data, is_pending=False)
+    if saved:
+        # Clear edit mode
+        st.session_state[f"edit_missing_record_{record_id}"] = False
+        time.sleep(1)
+        st.rerun()
+
+
+def show_complete_statistics(all_records, missing_scale, missing_climate, missing_location, 
+                           missing_building_use, missing_approach, missing_sample_size, missing_multiple):
+    """Display comprehensive statistics"""
+    total_records = len(all_records)
+    
+    # Calculate percentages
+    def calc_percent(count):
+        return round((count / total_records) * 100, 1) if total_records > 0 else 0
+    
+    st.subheader("📊 Complete Database Statistics")
+    
+    # Metrics in columns
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Records", total_records)
+        st.metric("Missing Scale", f"{len(missing_scale)} ({calc_percent(len(missing_scale))}%)")
+        st.metric("Missing Climate", f"{len(missing_climate)} ({calc_percent(len(missing_climate))}%)")
+    with col2:
+        st.metric("Missing Location", f"{len(missing_location)} ({calc_percent(len(missing_location))}%)")
+        st.metric("Missing Building Use", f"{len(missing_building_use)} ({calc_percent(len(missing_building_use))}%)")
+        st.metric("Missing Approach", f"{len(missing_approach)} ({calc_percent(len(missing_approach))}%)")
+    with col3:
+        st.metric("Missing Sample Size", f"{len(missing_sample_size)} ({calc_percent(len(missing_sample_size))}%)")
+        st.metric("Multiple Missing", f"{len(missing_multiple)} ({calc_percent(len(missing_multiple))}%)")
+        st.metric("Complete Records", f"{total_records - len(missing_scale) - len(missing_climate) - len(missing_location) - len(missing_building_use) - len(missing_approach) - len(missing_sample_size)}")
+    
+    # Progress bars
+    st.subheader("Data Completion Progress")
+    
+    completion_data = {
+        "Scale": 100 - calc_percent(len(missing_scale)),
+        "Climate": 100 - calc_percent(len(missing_climate)),
+        "Location": 100 - calc_percent(len(missing_location)),
+        "Building Use": 100 - calc_percent(len(missing_building_use)),
+        "Approach": 100 - calc_percent(len(missing_approach)),
+        "Sample Size": 100 - calc_percent(len(missing_sample_size)),
+    }
+    
+    for field, percent in completion_data.items():
+        st.progress(percent/100, text=f"{field}: {percent}% complete")
 
 def convert_urls_to_links(text):
     """
@@ -2458,6 +2837,234 @@ def process_confirmed_matches(confirmed_matches, excel_df):
     
     return updated_count
     
+# UNIFIED EDIT FORM FUNCTION
+def display_unified_edit_form(record_id, record_data=None, is_pending=False):
+    """
+    Unified edit form for all admin editing interfaces
+    record_data should be a dict with keys: criteria, energy_method, direction, paragraph, 
+    status, scale, climate, location, building_use, approach, sample_size
+    """
+    global conn
+    
+    if not record_data:
+        # Fetch record from database if not provided
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT id, criteria, energy_method, direction, paragraph, user, status, 
+                   scale, climate, location, building_use, approach, sample_size
+            FROM energy_data 
+            WHERE id = ?
+        ''', (record_id,))
+        
+        record = cursor.fetchone()
+        if not record:
+            st.error(f"Record {record_id} not found")
+            return False
+            
+        record_data = {
+            'criteria': record[1],
+            'energy_method': record[2],
+            'direction': record[3],
+            'paragraph': record[4],
+            'user': record[5],
+            'status': record[6],
+            'scale': record[7],
+            'climate': record[8],
+            'location': record[9],
+            'building_use': record[10],
+            'approach': record[11],
+            'sample_size': record[12]
+        }
+    
+    st.subheader(f"✏️ Editing Record {record_id}")
+    
+    # Edit form layout
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Determinant (free text input for flexibility)
+        new_criteria = st.text_input("Determinant", 
+                                    value=record_data['criteria'], 
+                                    key=f"unified_criteria_{record_id}")
+        
+        # Energy Output (free text input for flexibility)
+        new_energy_method = st.text_input("Energy Output", 
+                                        value=record_data['energy_method'], 
+                                        key=f"unified_energy_method_{record_id}")
+        
+        # Direction
+        new_direction = st.radio("Direction", ["Increase", "Decrease"], 
+                                index=0 if record_data['direction'] == "Increase" else 1,
+                                key=f"unified_direction_{record_id}", horizontal=True)
+        
+        # Scale (editable with dropdown)
+        try:
+            scale_options_list = ["Select scale"] + query_dynamic_scale_options(conn) + ["Add new scale"]
+        except:
+            scale_options_list = ["Select scale", "Awaiting data", "Add new scale"]
+        
+        # Find current scale in options
+        current_scale = record_data['scale'] if record_data['scale'] else "Select scale"
+        current_scale_index = scale_options_list.index(current_scale) if current_scale in scale_options_list else 0
+        
+        selected_scale = st.selectbox("Scale", 
+                                    options=scale_options_list,
+                                    index=current_scale_index,
+                                    key=f"unified_scale_{record_id}")
+        
+        new_scale = ""
+        if selected_scale == "Add new scale":
+            new_scale = st.text_input("Enter new scale", 
+                                    value="", 
+                                    key=f"unified_new_scale_{record_id}")
+        
+        # Location (editable)
+        new_location = st.text_input("Location", 
+                                    value=record_data['location'] if record_data['location'] else "", 
+                                    key=f"unified_location_{record_id}")
+        
+        # Building Use (editable with dropdown)
+        building_use_options = ["Select building use", "Mixed use", "Residential", 
+                               "Unspecified / Other", "Commercial", "Add new building use"]
+        current_building_use = record_data['building_use'] if record_data['building_use'] else "Select building use"
+        current_building_use_index = building_use_options.index(current_building_use) if current_building_use in building_use_options else 0
+        
+        selected_building_use = st.selectbox("Building Use", 
+                                           options=building_use_options,
+                                           index=current_building_use_index,
+                                           key=f"unified_building_use_{record_id}")
+        
+        new_building_use = ""
+        if selected_building_use == "Add new building use":
+            new_building_use = st.text_input("Enter new building use", 
+                                           value="", 
+                                           key=f"unified_new_building_use_{record_id}")
+    
+    with col2:
+        # Climate (editable with formatted dropdown)
+        try:
+            climate_options_raw = query_dominant_climate_options(conn)
+            climate_options_list = ["Select climate"] + [formatted for formatted, color in climate_options_raw] + ["Add new climate"]
+        except:
+            climate_options_list = ["Select climate", "Add new climate"]
+        
+        # Find current climate in options
+        current_climate = record_data['climate'] if record_data['climate'] else "Select climate"
+        current_climate_index = 0
+        
+        # Try to match the climate (handle both code only and formatted strings)
+        for i, opt in enumerate(climate_options_list):
+            opt_clean = opt.split(" - ")[0] if " - " in opt else opt
+            opt_clean = ''.join([c for c in opt_clean if c.isalnum()])
+            current_clean = current_climate.split(" - ")[0] if " - " in current_climate else current_climate
+            current_clean = ''.join([c for c in current_clean if c.isalnum()])
+            
+            if current_clean and current_clean.upper() == opt_clean.upper():
+                current_climate_index = i
+                break
+        
+        selected_climate = st.selectbox("Climate", 
+                                        options=climate_options_list,
+                                        index=current_climate_index,
+                                        key=f"unified_climate_{record_id}")
+        
+        new_climate = ""
+        if selected_climate == "Add new climate":
+            new_climate = st.text_input("Enter new climate code", 
+                                        value="", 
+                                        key=f"unified_new_climate_{record_id}")
+        
+        # Approach (editable with specific options)
+        approach_options = ["Select approach", "Top-down", "Bottom-up", "Hybrid (combined top-down and bottom-up)"]
+        current_approach = record_data['approach'] if record_data['approach'] else "Select approach"
+        current_approach_index = approach_options.index(current_approach) if current_approach in approach_options else 0
+        
+        selected_approach = st.selectbox("Approach", 
+                                       options=approach_options,
+                                       index=current_approach_index,
+                                       key=f"unified_approach_{record_id}")
+        
+        # Sample Size (editable)
+        new_sample_size = st.text_input("Sample Size", 
+                                        value=record_data['sample_size'] if record_data['sample_size'] else "", 
+                                        key=f"unified_sample_size_{record_id}")
+        
+        # Status (editable) - only for non-pending records
+        if not is_pending:
+            status_options = ["approved", "rejected", "pending"]
+            current_status = record_data['status'] if record_data['status'] in status_options else "approved"
+            new_status = st.selectbox("Status", 
+                                    options=status_options,
+                                    index=status_options.index(current_status),
+                                    key=f"unified_status_{record_id}")
+        else:
+            new_status = "pending"  # Keep as pending for pending records
+    
+    # Paragraph content
+    st.write("**Study Content:**")
+    new_paragraph = st.text_area("Content", 
+                                value=record_data['paragraph'], 
+                                height=150, 
+                                key=f"unified_paragraph_{record_id}")
+    
+    # Action buttons
+    col_save, col_cancel = st.columns(2)
+    
+    saved = False
+    
+    with col_save:
+        if st.button("💾 Save Changes", key=f"unified_save_{record_id}", type="primary", use_container_width=True):
+            # Prepare final values
+            final_scale = new_scale if selected_scale == "Add new scale" else (
+                selected_scale if selected_scale != "Select scale" else record_data['scale'])
+            
+            final_climate = new_climate if selected_climate == "Add new climate" else (
+                selected_climate if selected_climate != "Select climate" else record_data['climate'])
+            
+            # Clean climate code if formatted
+            if final_climate and " - " in str(final_climate):
+                final_climate = final_climate.split(" - ")[0]
+                final_climate = ''.join([c for c in final_climate if c.isalnum()])
+            
+            # Prepare building use value
+            final_building_use = new_building_use if selected_building_use == "Add new building use" else (
+                selected_building_use if selected_building_use != "Select building use" else record_data['building_use'])
+            
+            # Prepare approach value
+            final_approach = selected_approach if selected_approach != "Select approach" else record_data['approach']
+            
+            # Save to database
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE energy_data 
+                SET criteria = ?, energy_method = ?, direction = ?, paragraph = ?,
+                    scale = ?, climate = ?, location = ?, building_use = ?, approach = ?,
+                    sample_size = ?, status = ?
+                WHERE id = ?
+            ''', (
+                new_criteria,
+                new_energy_method, 
+                new_direction,
+                new_paragraph,
+                final_scale,
+                final_climate,
+                new_location,
+                final_building_use,
+                final_approach,
+                new_sample_size,
+                new_status,
+                record_id
+            ))
+            
+            conn.commit()
+            saved = True
+            st.success(f"✅ Record {record_id} updated successfully!")
+    
+    with col_cancel:
+        if st.button("❌ Cancel", key=f"unified_cancel_{record_id}", use_container_width=True):
+            st.rerun()
+    
+    return saved
 
 def manage_scale_climate_data():
     if "admin_editing_record_id" not in st.session_state:
@@ -2533,19 +3140,49 @@ def manage_scale_climate_data():
     ''')
     records = cursor.fetchall()
 
+    # Initialize missing data statistics variables
+    awaiting_scale = 0
+    awaiting_climate = 0
+    awaiting_location = 0
+    awaiting_building_use = 0
+    awaiting_approach = 0
+    awaiting_sample_size = 0
+    total_records = len(records)
+    
+    # Calculate statistics upfront
+    for record in records:
+        record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
+        
+        if scale in ["Awaiting data", "Not Specified", "", None] or not scale:
+            awaiting_scale += 1
+        
+        if climate in ["Awaiting data", "Not Specified", "", None] or not climate:
+            awaiting_climate += 1
+        
+        if location in ["", None] or not location:
+            awaiting_location += 1
+        
+        if building_use in ["", None] or not building_use:
+            awaiting_building_use += 1
+        
+        if approach in ["", None] or not approach:
+            awaiting_approach += 1
+        
+        if sample_size in ["", None] or not sample_size:
+            awaiting_sample_size += 1
+
     # Filter options with proper counts
     criteria_list = ["All determinants"] + [f"{criteria} [{count}]" for criteria, count in criteria_counts.items()]
     method_list = ["All outputs"] + [f"{method} [{count}]" for method, count in method_counts.items()]
     
-    # Direction and status options (these remain hardcoded as they're not from imports)
-    direction_options = ["Increase", "Decrease"]
-    status_options = ["approved", "rejected"]
-    
     # Initialize all filter variables
     selected_scales = []
     selected_climates = []
+    selected_locations = []
+    selected_building_uses = []
+    selected_approaches = []
     selected_direction = None
-    actual_method = None  # Initialize here to avoid UnboundLocalError
+    actual_method = None
 
     # FILTER LAYOUT - Consistent with main app
     # Step 1: Determinant dropdown - full width
@@ -2586,60 +3223,58 @@ def manage_scale_climate_data():
                 key="admin_direction_radio"
             )
             
-            # Step 4: Scale and Climate filters in 2 columns (only when direction is selected)
+            # Step 4: Additional filters when direction is selected
             if selected_direction:
-                col_scale, col_climate = st.columns(2)
+                # First row: Scale, Climate, Location
+                col_scale, col_climate, col_location = st.columns(3)
                 
                 with col_scale:
-                    # Scale filter - with dynamic counts based on current search AND climate filter
+                    # Scale filter
                     if scale_options:
-                        # Get current climate selection for scale counts
+                        # Get current selections for filtering
                         current_climate_filter = []
                         if 'admin_selected_climate' in st.session_state and st.session_state.admin_selected_climate != "All":
                             climate_code = st.session_state.admin_selected_climate.split(" - ")[0]
                             climate_code = ''.join([c for c in climate_code if c.isalnum()])
                             current_climate_filter = [climate_code]
                         
-                        # Get scale options with counts filtered by current climate
+                        current_location_filter = []
+                        if 'admin_selected_location' in st.session_state and st.session_state.admin_selected_location != "All":
+                            location_name = st.session_state.admin_selected_location.split(" [")[0]
+                            current_location_filter = [location_name]
+                        
+                        # Get scale options with counts filtered by current selections
                         scale_options_with_counts = query_scale_options_with_counts(
                             conn, 
                             actual_criteria, 
                             actual_method, 
-                            selected_direction,  # Use selected direction
-                            current_climate_filter  # Pass current climate filter
+                            selected_direction,
+                            current_climate_filter,
+                            current_location_filter
                         )
                         
                         if scale_options_with_counts:
-                            # Initialize selected_scale in session state if not exists
                             if 'admin_selected_scale' not in st.session_state:
                                 st.session_state.admin_selected_scale = "All"
                             
-                            # Create options with counts
                             scale_options_formatted = ["All"] + [f"{scale} [{count}]" for scale, count in scale_options_with_counts]
                             
-                            # Find the current index - preserve selection if it exists in new options
+                            # Find the current index
                             current_scale = st.session_state.admin_selected_scale
-                            current_index = 0  # Default to "All"
-                            
-                            # Check if current selection exists in the new filtered options
+                            current_index = 0
                             if current_scale != "All":
-                                # Extract just the scale name from the formatted option
                                 if " [" in current_scale:
                                     current_scale_name = current_scale.split(" [")[0]
                                 else:
                                     current_scale_name = current_scale
                                 
-                                # Look for this scale in the new options
                                 for i, option in enumerate(scale_options_formatted):
                                     if option.startswith(current_scale_name + " [") or option == current_scale:
                                         current_index = i
                                         break
                                 else:
-                                    # If current selection not found, reset to "All"
                                     st.session_state.admin_selected_scale = "All"
                                     current_index = 0
-                            else:
-                                current_index = 0
                             
                             selected_scale = st.selectbox(
                                 "Filter by Scale",
@@ -2648,84 +3283,68 @@ def manage_scale_climate_data():
                                 key="admin_scale_filter"
                             )
                             
-                            # Update session state only if selection actually changed
                             if selected_scale != st.session_state.admin_selected_scale:
                                 st.session_state.admin_selected_scale = selected_scale
-                                # Trigger rerun to update the other filter
                                 st.rerun()
                             
-                            # Extract just the scale name for filtering (remove count)
                             if selected_scale != "All":
                                 scale_name = selected_scale.split(" [")[0]
                                 selected_scales = [scale_name]
-                            else:
-                                selected_scales = None
                         else:
                             st.info("No scale data available for current selection")
                             selected_scales = None
-                            st.session_state.admin_selected_scale = "All"
                     else:
-                        st.info("No scale data")
+                        st.info("No scale data available")
                         selected_scales = None
 
                 with col_climate:
-                    # Climate filter - with dynamic counts based on current search AND scale filter
+                    # Climate filter
                     if climate_options:
-                        # Get current scale selection for climate counts
+                        # Get current selections for filtering
                         current_scale_filter = []
                         if 'admin_selected_scale' in st.session_state and st.session_state.admin_selected_scale != "All":
                             scale_name = st.session_state.admin_selected_scale.split(" [")[0]
                             current_scale_filter = [scale_name]
                         
-                        # Pass None for direction if it's not selected yet
-                        current_direction = None
-                        if selected_direction and selected_direction != "Select a direction":
-                            current_direction = selected_direction
+                        current_location_filter = []
+                        if 'admin_selected_location' in st.session_state and st.session_state.admin_selected_location != "All":
+                            location_name = st.session_state.admin_selected_location.split(" [")[0]
+                            current_location_filter = [location_name]
                         
-                        # Get climate options with counts filtered by current scale
+                        # Get climate options with counts
                         climate_options_with_counts = query_climate_options_with_counts(
                             conn, 
-                            actual_criteria,  # This might be None
-                            actual_method,    # This might be None  
-                            current_direction,  # Pass None if not selected
-                            current_scale_filter  # Pass current scale filter
+                            actual_criteria,
+                            actual_method,
+                            selected_direction,
+                            current_scale_filter
                         )
                         
                         if climate_options_with_counts:
-                            # Initialize selected_climate in session state if not exists
                             if 'admin_selected_climate' not in st.session_state:
                                 st.session_state.admin_selected_climate = "All"
                             
-                            # Create options with colored display and counts
                             climate_options_formatted = ["All"] + [formatted for formatted, color, count in climate_options_with_counts]
                             
-                            # Find the current index - preserve selection if it exists in new options
+                            # Find the current index
                             current_climate = st.session_state.admin_selected_climate
-                            current_index = 0  # Default to "All"
-                            
-                            # Check if current selection exists in the new filtered options
+                            current_index = 0
                             if current_climate != "All":
-                                # Extract just the climate code from the formatted option
                                 if " - " in current_climate:
                                     current_climate_code = current_climate.split(" - ")[0]
-                                    # Remove emoji if present
                                     current_climate_code = ''.join([c for c in current_climate_code if c.isalnum()])
                                 else:
                                     current_climate_code = current_climate
                                 
-                                # Look for this climate in the new options
                                 for i, option in enumerate(climate_options_formatted):
                                     option_code = option.split(" - ")[0]
                                     option_code = ''.join([c for c in option_code if c.isalnum()])
-                                    if option_code == current_climate_code:
+                                    if option_code.upper() == current_climate_code.upper():
                                         current_index = i
                                         break
                                 else:
-                                    # If current selection not found, reset to "All"
                                     st.session_state.admin_selected_climate = "All"
                                     current_index = 0
-                            else:
-                                current_index = 0
                             
                             selected_climate = st.selectbox(
                                 "Filter by Climate",
@@ -2734,44 +3353,199 @@ def manage_scale_climate_data():
                                 key="admin_climate_filter"
                             )
                             
-                            # Update session state only if selection actually changed
                             if selected_climate != st.session_state.admin_selected_climate:
                                 st.session_state.admin_selected_climate = selected_climate
-                                # Trigger rerun to update the other filter
                                 st.rerun()
                             
-                            # Extract just the climate code for filtering
                             if selected_climate != "All":
-                                # Remove the emoji, description, and count to get just the climate code
                                 climate_code = selected_climate.split(" - ")[0]
-                                # Remove any emoji characters and count
                                 climate_code = ''.join([c for c in climate_code if c.isalnum()])
                                 selected_climates = [climate_code]
-                            else:
-                                selected_climates = None
                         else:
                             st.info("No climate data available for current selection")
                             selected_climates = None
-                            st.session_state.admin_selected_climate = "All"
                     else:
                         st.info("No climate data available")
                         selected_climates = None
 
-    # Filter records in memory (only when all required selections are made)
+                with col_location:
+                    # Location filter
+                    current_direction = selected_direction.split(" [")[0] if " [" in selected_direction else selected_direction
+                    
+                    location_options_with_counts = query_location_options_with_counts(
+                        conn, actual_criteria, actual_method, current_direction, 
+                        selected_scales, selected_climates
+                    )
+                    
+                    if location_options_with_counts:
+                        if 'admin_selected_location' not in st.session_state:
+                            st.session_state.admin_selected_location = "All"
+                        
+                        location_options_formatted = ["All"] + [f"{location} [{count}]" for location, count in location_options_with_counts]
+                        
+                        # Find the current index
+                        current_location = st.session_state.admin_selected_location
+                        current_index = 0
+                        if current_location != "All":
+                            if " [" in current_location:
+                                current_location_name = current_location.split(" [")[0]
+                            else:
+                                current_location_name = current_location
+                            
+                            for i, option in enumerate(location_options_formatted):
+                                if option.startswith(current_location_name + " [") or option == current_location:
+                                    current_index = i
+                                    break
+                            else:
+                                st.session_state.admin_selected_location = "All"
+                                current_index = 0
+                        
+                        selected_location = st.selectbox(
+                            "Filter by Location",
+                            options=location_options_formatted,
+                            index=current_index,
+                            key="admin_location_filter"
+                        )
+                        
+                        if selected_location != st.session_state.admin_selected_location:
+                            st.session_state.admin_selected_location = selected_location
+                            st.rerun()
+                        
+                        if selected_location != "All":
+                            location_name = selected_location.split(" [")[0]
+                            selected_locations = [location_name]
+                    else:
+                        st.info("No location data available")
+                        selected_locations = None
+
+                # Second row: Building Use and Approach
+                col_building_use, col_approach = st.columns(2)
+                
+                with col_building_use:
+                    # Building Use filter
+                    building_use_options_with_counts = query_building_use_options_with_counts(
+                        conn, actual_criteria, actual_method, current_direction,
+                        selected_scales, selected_climates, selected_locations
+                    )
+                    
+                    if building_use_options_with_counts:
+                        if 'admin_selected_building_use' not in st.session_state:
+                            st.session_state.admin_selected_building_use = "All"
+                        
+                        building_use_options_formatted = ["All"] + [f"{use} [{count}]" for use, count in building_use_options_with_counts]
+                        
+                        # Find the current index
+                        current_building_use = st.session_state.admin_selected_building_use
+                        current_index = 0
+                        if current_building_use != "All":
+                            if " [" in current_building_use:
+                                current_use_name = current_building_use.split(" [")[0]
+                            else:
+                                current_use_name = current_building_use
+                            
+                            for i, option in enumerate(building_use_options_formatted):
+                                if option.startswith(current_use_name + " [") or option == current_building_use:
+                                    current_index = i
+                                    break
+                            else:
+                                st.session_state.admin_selected_building_use = "All"
+                                current_index = 0
+                        
+                        selected_building_use = st.selectbox(
+                            "Filter by Building Use",
+                            options=building_use_options_formatted,
+                            index=current_index,
+                            key="admin_building_use_filter"
+                        )
+                        
+                        if selected_building_use != st.session_state.admin_selected_building_use:
+                            st.session_state.admin_selected_building_use = selected_building_use
+                            st.rerun()
+                        
+                        if selected_building_use != "All":
+                            building_use_name = selected_building_use.split(" [")[0]
+                            selected_building_uses = [building_use_name]
+                    else:
+                        st.info("No building use data available")
+                        selected_building_uses = None
+
+                with col_approach:
+                    # Approach filter (fixed options)
+                    approach_options_with_counts = query_approach_options_with_counts(
+                        conn, actual_criteria, actual_method, current_direction,
+                        selected_scales, selected_climates, selected_locations, selected_building_uses
+                    )
+                    
+                    if approach_options_with_counts:
+                        if 'admin_selected_approach' not in st.session_state:
+                            st.session_state.admin_selected_approach = "All"
+                        
+                        approach_options_formatted = ["All"] + [f"{approach} [{count}]" for approach, count in approach_options_with_counts]
+                        
+                        # Find the current index
+                        current_approach = st.session_state.admin_selected_approach
+                        current_index = 0
+                        if current_approach != "All":
+                            if " [" in current_approach:
+                                current_approach_name = current_approach.split(" [")[0]
+                            else:
+                                current_approach_name = current_approach
+                            
+                            for i, option in enumerate(approach_options_formatted):
+                                if option.startswith(current_approach_name + " [") or option == current_approach:
+                                    current_index = i
+                                    break
+                            else:
+                                st.session_state.admin_selected_approach = "All"
+                                current_index = 0
+                        
+                        selected_approach = st.selectbox(
+                            "Filter by Approach",
+                            options=approach_options_formatted,
+                            index=current_index,
+                            key="admin_approach_filter"
+                        )
+                        
+                        if selected_approach != st.session_state.admin_selected_approach:
+                            st.session_state.admin_selected_approach = selected_approach
+                            st.rerun()
+                        
+                        if selected_approach != "All":
+                            approach_name = selected_approach.split(" [")[0]
+                            selected_approaches = [approach_name]
+                    else:
+                        st.info("No approach data available")
+                        selected_approaches = None
+
+    # Filter records based on selections
     filtered_records = records
-    if actual_criteria:
+    
+    # Apply filters in memory
+    if actual_criteria and actual_criteria != "All determinants":
         filtered_records = [r for r in filtered_records if r[1] == actual_criteria]
-    if actual_method:  # Now this variable is always defined
+    
+    if actual_method and actual_method != "All outputs":
         filtered_records = [r for r in filtered_records if r[2] == actual_method]
+    
     if selected_direction:
-        clean_direction = selected_direction.split(" [")[0] if selected_direction else None
+        clean_direction = selected_direction.split(" [")[0] if " [" in selected_direction else selected_direction
         filtered_records = [r for r in filtered_records if r[3] == clean_direction]
+    
     if selected_scales:
         filtered_records = [r for r in filtered_records if r[7] in selected_scales]
+    
     if selected_climates:
-        # Case-insensitive comparison
         selected_climates_upper = [c.upper() for c in selected_climates]
         filtered_records = [r for r in filtered_records if r[8] and r[8].upper() in selected_climates_upper]
+    
+    if selected_locations:
+        filtered_records = [r for r in filtered_records if r[9] in selected_locations]
+    
+    if selected_building_uses:
+        filtered_records = [r for r in filtered_records if r[10] in selected_building_uses]
+    
+    if selected_approaches:
+        filtered_records = [r for r in filtered_records if r[11] in selected_approaches]
 
     # Only show results when we have the basic selections
     if actual_criteria and actual_method and selected_direction:
@@ -2779,36 +3553,6 @@ def manage_scale_climate_data():
     else:
         st.write("**Please select a determinant, energy output, and direction to see records**")
         filtered_records = []
-    
-    # [Rest of the function remains the same - display records, etc.]
-    # Show data source info
-    with st.expander("📊 Data Source Info", expanded=False):
-        # Handle scale options format
-        if scale_options:
-            if isinstance(scale_options[0], tuple):
-                scale_texts = [f"{scale} [{count}]" for scale, count in scale_options[:10]]
-            else:
-                scale_texts = scale_options[:10]
-            st.write(f"**Dynamic Scale Options ({len(scale_options)}):** {', '.join(scale_texts)}{'...' if len(scale_options) > 10 else ''}")
-        else:
-            st.write("**Dynamic Scale Options (0):** No data available")
-        
-        # Handle climate options format
-        if climate_options:
-            if isinstance(climate_options[0], tuple):
-                if len(climate_options[0]) == 3:
-                    # New format with counts
-                    climate_texts = [formatted for formatted, color, count in climate_options[:10]]
-                else:
-                    # Old format without counts
-                    climate_texts = [formatted for formatted, color in climate_options[:10]]
-            else:
-                climate_texts = climate_options[:10]
-            st.write(f"**Dynamic Climate Options ({len(climate_options)}):** {', '.join(climate_texts)}{'...' if len(climate_options) > 10 else ''}")
-        else:
-            st.write("**Dynamic Climate Options (0):** No data available")
-        
-        st.caption("💡 These options are automatically extracted from your imported Excel data")
     
     # Process records in batches if needed
     BATCH_SIZE = 10
@@ -2841,431 +3585,118 @@ def manage_scale_climate_data():
             
             if not edit_mode:
                 if st.button("✏️ Edit Record", key=f"admin_full_edit_btn_{record_id}", use_container_width=True):
+                    # Fetch the complete record from database
+                    cursor_local = conn.cursor()
+                    cursor_local.execute('''
+                        SELECT id, criteria, energy_method, direction, paragraph, user, status, 
+                                scale, climate, location, building_use, approach, sample_size
+                        FROM energy_data 
+                        WHERE id = ?
+                    ''', (record_id,))
+                    
+                    record_data = cursor_local.fetchone()
+                    
+                    if record_data:
+                        # Store the record data in session state for editing
+                        st.session_state[f"edit_data_{record_id}"] = {
+                            'criteria': record_data[1],
+                            'energy_method': record_data[2],
+                            'direction': record_data[3],
+                            'paragraph': record_data[4],
+                            'user': record_data[5],
+                            'status': record_data[6],
+                            'scale': record_data[7],
+                            'climate': record_data[8],
+                            'location': record_data[9],
+                            'building_use': record_data[10],
+                            'approach': record_data[11],
+                            'sample_size': record_data[12]
+                        }
+                    
+                    # Enter edit mode
                     st.session_state[f"admin_full_edit_{record_id}"] = True
                     st.rerun()
         
         # Display/Edit all fields
-            if st.session_state.get(f"admin_full_edit_{record_id}"):
-                # Edit Mode - All fields editable
-                col1, col2 = st.columns(2)
+        if st.session_state.get(f"admin_full_edit_{record_id}"):
+            # Edit Mode - Fetch data from session state or use current
+            edit_data = st.session_state.get(f"edit_data_{record_id}", {
+                'criteria': criteria,
+                'energy_method': energy_method,
+                'direction': direction,
+                'paragraph': paragraph,
+                'user': user,
+                'status': status,
+                'scale': scale,
+                'climate': climate,
+                'location': location,
+                'building_use': building_use,
+                'approach': approach,
+                'sample_size': sample_size
+            })
+            
+            # Use the unified edit form
+            saved = display_unified_edit_form(record_id, edit_data, is_pending=False)
+            if saved:
+                # Clear edit mode and stored data
+                st.session_state[f"admin_full_edit_{record_id}"] = False
+                if f"edit_data_{record_id}" in st.session_state:
+                    del st.session_state[f"edit_data_{record_id}"]
+                time.sleep(1)
+                st.rerun()
+                    
+        else:
+            # View Mode - Display all information clearly
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write(f"**Determinant:** {criteria}")
+                st.write(f"**Energy Output:** {energy_method}")
+                st.write(f"**Direction:** {direction}")
+                if location:
+                    st.write(f"**Location:** {location}")
+                if building_use:
+                    st.write(f"**Building Use:** {building_use}")
+                if approach:
+                    st.write(f"**Approach:** {approach}")
+                if sample_size:
+                    st.write(f"**Sample Size:** {sample_size}")
+            
+            with col2:
+                st.write(f"**Scale:** {scale}")
                 
-                with col1:
-                    # Determinant (free text input for flexibility)
-                    new_criteria = st.text_input("Determinant", value=criteria, key=f"admin_criteria_{record_id}")
-                    
-                    # Energy Output (free text input for flexibility)
-                    new_energy_method = st.text_input("Energy Output", value=energy_method, key=f"admin_energy_method_{record_id}")
-                    
-                    # Direction
-                    new_direction = st.radio("Direction", ["Increase", "Decrease"], 
-                                        index=0 if direction == "Increase" else 1,
-                                        key=f"admin_direction_{record_id}", horizontal=True)
-                    
-                    # Scale (editable)
-                    scale_options_list = ["Select scale"] + query_dynamic_scale_options(conn) + ["Add new scale"]
-                    selected_scale = st.selectbox("Scale", 
-                                                options=scale_options_list,
-                                                index=scale_options_list.index(scale) if scale in scale_options_list else 0,
-                                                key=f"admin_scale_{record_id}")
-                    
-                    new_scale = ""
-                    if selected_scale == "Add new scale":
-                        new_scale = st.text_input("Enter new scale", key=f"admin_new_scale_{record_id}")
-                    
-                    # Location (editable)
-                    new_location = st.text_input("Location", value=location if location else "", 
-                                               key=f"admin_location_{record_id}")
-                
-                with col2:
-                    # Climate (editable)
-                    climate_options_list = ["Select dominant climate"] + [formatted for formatted, color in query_dominant_climate_options(conn)] + ["Add new climate"]
-                    
-                    # Find current climate in options
-                # Find current climate in options (without counts for display)
-                current_climate_index = 0
-                for i, opt in enumerate(climate_options_list):
-                    if climate:
-                        # Compare without counts for matching
-                        opt_without_count = opt.split(" [")[0] if " [" in opt else opt
-                        climate_clean = climate.split(" - ")[0] if " - " in climate else climate
-                        if climate_clean in opt_without_count or climate in opt_without_count:
-                            current_climate_index = i
-                            break
-                    
-                    selected_climate = st.selectbox("Dominant Climate", 
-                                                  options=climate_options_list,
-                                                  index=current_climate_index,
-                                                  key=f"admin_climate_{record_id}")
-                    
-                    new_climate = ""
-                    if selected_climate == "Add new climate":
-                        new_climate = st.text_input("Enter new climate code", key=f"admin_new_climate_{record_id}")
-                    
-                    # Building Use (editable)
-                    new_building_use = st.text_input("Building Use", value=building_use if building_use else "", 
-                                                   key=f"admin_building_use_{record_id}")
-                    
-                    # Approach (editable)
-                    new_approach = st.text_input("Approach", value=approach if approach else "", 
-                                               key=f"admin_approach_{record_id}")
-                    
-                    # Sample Size (editable)
-                    new_sample_size = st.text_input("Sample Size", value=sample_size if sample_size else "", 
-                                                  key=f"admin_sample_size_{record_id}")
-                    
-                    # Status (editable)
-                    status_options = ["approved", "rejected", "pending"]
-                    new_status = st.selectbox("Status", options=status_options,
-                                           index=status_options.index(status) if status in status_options else 0,
-                                           key=f"admin_status_{record_id}")
-                
-                # Paragraph content (larger area) - ALWAYS VISIBLE
-                st.write("**Study Content:**")
-                new_paragraph = st.text_area("Content", value=paragraph, height=150, key=f"admin_paragraph_{record_id}")
-                
-                # Save and Cancel buttons for individual record
-                col_save, col_cancel = st.columns(2)
-                with col_save:
-                    if st.button("💾 Save This Record", key=f"admin_save_single_{record_id}", use_container_width=True, type="primary"):
-                        # Prepare final values
-                        final_scale = new_scale if selected_scale == "Add new scale" else (selected_scale if selected_scale != "Select scale" else scale)
-                        final_climate = new_climate if selected_climate == "Add new climate" else (selected_climate if selected_climate != "Select climate" else climate)
-                        
-                        # Clean climate code if formatted
-                        if final_climate and " - " in str(final_climate):
-                            final_climate = final_climate.split(" - ")[0]
-                            final_climate = ''.join([c for c in final_climate if c.isalnum()])
-                        
-                        # Save individual record to database
-                        cursor_edit = conn.cursor()
-                        cursor_edit.execute('''
-                            UPDATE energy_data 
-                            SET criteria = ?, energy_method = ?, direction = ?, paragraph = ?, 
-                                scale = ?, climate = ?, location = ?, building_use = ?, approach = ?, 
-                                sample_size = ?, status = ?
-                            WHERE id = ?
-                        ''', (
-                            new_criteria,
-                            new_energy_method, 
-                            new_direction,
-                            new_paragraph,
-                            final_scale,
-                            final_climate,
-                            new_location,
-                            new_building_use,
-                            new_approach,
-                            new_sample_size,
-                            new_status,
-                            record_id
-                        ))
-                        
-                        conn.commit()
-                        
-                        st.session_state[f"admin_full_edit_{record_id}"] = False
-                        st.success(f"✅ Record {record_id} updated successfully!")
-                        time.sleep(1)
-                        st.rerun()
-                
-                with col_cancel:
-                    if st.button("❌ Cancel Edit", key=f"admin_cancel_single_{record_id}", use_container_width=True):
-                        st.session_state[f"admin_full_edit_{record_id}"] = False
-                        st.rerun()
-                        
-            else:
-                # View Mode - Display all information clearly
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.write(f"**Determinant:** {criteria}")
-                    st.write(f"**Energy Output:** {energy_method}")
-                    st.write(f"**Direction:** {direction}")
-                    if location:
-                        st.write(f"**Location:** {location}")
-                    if building_use:
-                        st.write(f"**Building Use:** {building_use}")
-                    if approach:
-                        st.write(f"**Approach:** {approach}")
-                    if sample_size:
-                        st.write(f"**Sample Size:** {sample_size}")
-                
-                with col2:
-                    st.write(f"**Scale:** {scale}")
-                    
-                    if climate:
-                        # Handle different climate option formats for display
-                        formatted_climate_display = climate
-                        if climate_options and isinstance(climate_options[0], tuple):
-                            # Try to find the formatted version from climate_options
-                            for option in climate_options:
-                                if len(option) == 3:
-                                    formatted, color_option, count = option
+                if climate:
+                    # Handle different climate option formats for display
+                    formatted_climate_display = climate
+                    if climate_options and isinstance(climate_options[0], tuple):
+                        # Try to find the formatted version from climate_options
+                        for option in climate_options:
+                            if len(option) == 3:
+                                formatted, color_option, count = option
+                            else:
+                                formatted, color_option = option
+                                
+                            # Check if this formatted option matches our climate
+                            climate_code_from_formatted = formatted.split(" - ")[0]
+                            # Remove emoji to get just the code
+                            climate_code_clean = ''.join([c for c in climate_code_from_formatted if c.isalnum()])
+                            if climate_code_clean.upper() == climate.upper():
+                                # REMOVE COUNT FROM DISPLAY
+                                if " [" in formatted:
+                                    formatted_climate_display = formatted.split(" [")[0]
                                 else:
-                                    formatted, color_option = option
-                                    
-                                # Check if this formatted option matches our climate
-                                climate_code_from_formatted = formatted.split(" - ")[0]
-                                # Remove emoji to get just the code
-                                climate_code_clean = ''.join([c for c in climate_code_from_formatted if c.isalnum()])
-                                if climate_code_clean.upper() == climate.upper():
-                                    # REMOVE COUNT FROM DISPLAY
-                                    # Format without count: "🟦 Cfa - Humid Subtropical"
-                                    # Split by " [" to remove count part
-                                    if " [" in formatted:
-                                        formatted_climate_display = formatted.split(" [")[0]
-                                    else:
-                                        formatted_climate_display = formatted
-                                    break
-                        
-                        color = get_climate_color(climate)
-                        st.markdown(f"**Climate:** <span style='background-color: {color}; padding: 2px 8px; border-radius: 10px; color: black;'>{formatted_climate_display}</span>", unsafe_allow_html=True)
+                                    formatted_climate_display = formatted
+                                break
+                    
+                    color = get_climate_color(climate)
+                    st.markdown(f"**Climate:** <span style='background-color: {color}; padding: 2px 8px; border-radius: 10px; color: black;'>{formatted_climate_display}</span>", unsafe_allow_html=True)
 
-                    st.write(f"**Status:** {status}")
-                    st.write(f"**Submitted by:** {user}")
-                
-                # Study content - ALWAYS VISIBLE, not in expander
-                st.write("**Study Content:**")
-                display_study_content(paragraph, record_id)
-
-    
-    # Quick actions
-    st.markdown("---")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if st.button("🔄 Refresh Data", key="admin_refresh_edit", use_container_width=True):
-            st.rerun()
-    with col2:
-        if st.button("📊 Show Statistics", key="admin_stats_edit", use_container_width=True):
-            # Calculate statistics
-            awaiting_scale = len([r for r in records if r[7] in ["Awaiting data", "Not Specified", "", None] or not r[7]])
-            awaiting_climate = len([r for r in records if r[8] in ["Awaiting data", "Not Specified", "", None] or not r[8]])
-            awaiting_location = len([r for r in records if r[9] in ["", None] or not r[9]])
-            awaiting_building_use = len([r for r in records if r[10] in ["", None] or not r[10]])
-            awaiting_approach = len([r for r in records if r[11] in ["", None] or not r[11]])
-            awaiting_sample_size = len([r for r in records if r[12] in ["", None] or not r[12]])
-            total_records = len(records)
+                st.write(f"**Status:** {status}")
+                st.write(f"**Submitted by:** {user}")
             
-            # Display statistics
-            st.info(f"""
-            **Database Statistics:**
-            - Total approved records: {total_records}
-            - Records needing scale data: {awaiting_scale}
-            - Records needing climate data: {awaiting_climate}
-            - Records needing location data: {awaiting_location}
-            - Records needing building use data: {awaiting_building_use}
-            - Records needing approach data: {awaiting_approach}
-            - Records needing sample size data: {awaiting_sample_size}
-            - Unique scale types: {len(scale_options)}
-            - Unique climate types: {len(climate_options)}
-            """)
-            
-            # NEW: Show records with missing data
-            st.subheader("🔍 Records with Missing Data")
-            
-            # Create tabs for different types of missing data
-            missing_tabs = st.tabs(["Scale", "Climate", "Location", "Building Use", "Approach", "Sample Size"])
-            
-            with missing_tabs[0]:
-                # Records missing scale data
-                missing_scale = [r for r in records if r[7] in ["Awaiting data", "Not Specified", "", None] or not r[7]]
-                if missing_scale:
-                    st.write(f"**{len(missing_scale)} records missing scale data:**")
-                    for record in missing_scale[:20]:  # Show first 20
-                        record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
-                        with st.expander(f"Record {record_id}: {criteria} → {energy_method} ({direction})"):
-                            st.write(f"**Current Scale:** {scale if scale else 'Empty'}")
-                            st.write(f"**Climate:** {climate if climate else 'Empty'}")
-                            st.write(f"**Location:** {location if location else 'Empty'}")
-                            
-                            # Quick edit button
-                            if st.button(f"✏️ Edit Record {record_id}", key=f"quick_edit_scale_{record_id}"):
-                                st.session_state[f"admin_full_edit_{record_id}"] = True
-                                st.rerun()
-                    
-                    if len(missing_scale) > 20:
-                        st.write(f"... and {len(missing_scale) - 20} more records")
-                else:
-                    st.success("✅ All records have scale data!")
-            
-            with missing_tabs[1]:
-                # Records missing climate data
-                missing_climate = [r for r in records if r[8] in ["Awaiting data", "Not Specified", "", None] or not r[8]]
-                if missing_climate:
-                    st.write(f"**{len(missing_climate)} records missing climate data:**")
-                    for record in missing_climate[:20]:
-                        record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
-                        with st.expander(f"Record {record_id}: {criteria} → {energy_method} ({direction})"):
-                            st.write(f"**Scale:** {scale if scale else 'Empty'}")
-                            st.write(f"**Current Climate:** {climate if climate else 'Empty'}")
-                            st.write(f"**Location:** {location if location else 'Empty'}")
-                            
-                            if st.button(f"✏️ Edit Record {record_id}", key=f"quick_edit_climate_{record_id}"):
-                                st.session_state[f"admin_full_edit_{record_id}"] = True
-                                st.rerun()
-                    
-                    if len(missing_climate) > 20:
-                        st.write(f"... and {len(missing_climate) - 20} more records")
-                else:
-                    st.success("✅ All records have climate data!")
-            
-            with missing_tabs[2]:
-                # Records missing location data
-                missing_location = [r for r in records if r[9] in ["", None] or not r[9]]
-                if missing_location:
-                    st.write(f"**{len(missing_location)} records missing location data:**")
-                    for record in missing_location[:20]:
-                        record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
-                        with st.expander(f"Record {record_id}: {criteria} → {energy_method} ({direction})"):
-                            st.write(f"**Scale:** {scale if scale else 'Empty'}")
-                            st.write(f"**Climate:** {climate if climate else 'Empty'}")
-                            st.write(f"**Current Location:** {location if location else 'Empty'}")
-                            
-                            if st.button(f"✏️ Edit Record {record_id}", key=f"quick_edit_location_{record_id}"):
-                                st.session_state[f"admin_full_edit_{record_id}"] = True
-                                st.rerun()
-                    
-                    if len(missing_location) > 20:
-                        st.write(f"... and {len(missing_location) - 20} more records")
-                else:
-                    st.success("✅ All records have location data!")
-            
-            with missing_tabs[3]:
-                # Records missing building use data
-                missing_building_use = [r for r in records if r[10] in ["", None] or not r[10]]
-                if missing_building_use:
-                    st.write(f"**{len(missing_building_use)} records missing building use data:**")
-                    for record in missing_building_use[:20]:
-                        record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
-                        with st.expander(f"Record {record_id}: {criteria} → {energy_method} ({direction})"):
-                            st.write(f"**Location:** {location if location else 'Empty'}")
-                            st.write(f"**Current Building Use:** {building_use if building_use else 'Empty'}")
-                            
-                            if st.button(f"✏️ Edit Record {record_id}", key=f"quick_edit_building_use_{record_id}"):
-                                st.session_state[f"admin_full_edit_{record_id}"] = True
-                                st.rerun()
-                    
-                    if len(missing_building_use) > 20:
-                        st.write(f"... and {len(missing_building_use) - 20} more records")
-                else:
-                    st.success("✅ All records have building use data!")
-            
-            with missing_tabs[4]:
-                # Records missing approach data
-                missing_approach = [r for r in records if r[11] in ["", None] or not r[11]]
-                if missing_approach:
-                    st.write(f"**{len(missing_approach)} records missing approach data:**")
-                    for record in missing_approach[:20]:
-                        record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
-                        with st.expander(f"Record {record_id}: {criteria} → {energy_method} ({direction})"):
-                            st.write(f"**Building Use:** {building_use if building_use else 'Empty'}")
-                            st.write(f"**Current Approach:** {approach if approach else 'Empty'}")
-                            
-                            if st.button(f"✏️ Edit Record {record_id}", key=f"quick_edit_approach_{record_id}"):
-                                st.session_state[f"admin_full_edit_{record_id}"] = True
-                                st.rerun()
-                    
-                    if len(missing_approach) > 20:
-                        st.write(f"... and {len(missing_approach) - 20} more records")
-                else:
-                    st.success("✅ All records have approach data!")
-            
-            with missing_tabs[5]:
-                # Records missing sample size data
-                missing_sample_size = [r for r in records if r[12] in ["", None] or not r[12]]
-                if missing_sample_size:
-                    st.write(f"**{len(missing_sample_size)} records missing sample size data:**")
-                    for record in missing_sample_size[:20]:
-                        record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
-                        with st.expander(f"Record {record_id}: {criteria} → {energy_method} ({direction})"):
-                            st.write(f"**Approach:** {approach if approach else 'Empty'}")
-                            st.write(f"**Current Sample Size:** {sample_size if sample_size else 'Empty'}")
-                            
-                            if st.button(f"✏️ Edit Record {record_id}", key=f"quick_edit_sample_size_{record_id}"):
-                                st.session_state[f"admin_full_edit_{record_id}"] = True
-                                st.rerun()
-                    
-                    if len(missing_sample_size) > 20:
-                        st.write(f"... and {len(missing_sample_size) - 20} more records")
-                else:
-                    st.success("✅ All records have sample size data!")
-            
-            # NEW: Show records with multiple missing fields
-            st.subheader("📋 Records with Multiple Missing Fields")
-            
-            # Find records with multiple missing fields
-            records_with_multiple_missing = []
-            for record in records:
-                missing_count = 0
-                missing_fields = []
-                
-                record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
-                
-                if scale in ["Awaiting data", "Not Specified", "", None] or not scale:
-                    missing_count += 1
-                    missing_fields.append("Scale")
-                
-                if climate in ["Awaiting data", "Not Specified", "", None] or not climate:
-                    missing_count += 1
-                    missing_fields.append("Climate")
-                
-                if location in ["", None] or not location:
-                    missing_count += 1
-                    missing_fields.append("Location")
-                
-                if building_use in ["", None] or not building_use:
-                    missing_count += 1
-                    missing_fields.append("Building Use")
-                
-                if approach in ["", None] or not approach:
-                    missing_count += 1
-                    missing_fields.append("Approach")
-                
-                if sample_size in ["", None] or not sample_size:
-                    missing_count += 1
-                    missing_fields.append("Sample Size")
-                
-                if missing_count >= 2:  # Records with 2 or more missing fields
-                    records_with_multiple_missing.append({
-                        'record': record,
-                        'missing_count': missing_count,
-                        'missing_fields': missing_fields
-                    })
-            
-            if records_with_multiple_missing:
-                # Sort by number of missing fields (most missing first)
-                records_with_multiple_missing.sort(key=lambda x: x['missing_count'], reverse=True)
-                
-                st.write(f"**{len(records_with_multiple_missing)} records with 2+ missing fields:**")
-                
-                for item in records_with_multiple_missing[:10]:  # Show top 10
-                    record = item['record']
-                    record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
-                    
-                    with st.expander(f"Record {record_id}: {criteria} → {energy_method} ({direction}) - Missing: {', '.join(item['missing_fields'])}"):
-                        col_info, col_action = st.columns([3, 1])
-                        
-                        with col_info:
-                            st.write(f"**Missing Fields ({item['missing_count']}):** {', '.join(item['missing_fields'])}")
-                            st.write(f"**Scale:** {scale if scale else '❌ Missing'}")
-                            st.write(f"**Climate:** {climate if climate else '❌ Missing'}")
-                            st.write(f"**Location:** {location if location else '❌ Missing'}")
-                            st.write(f"**Building Use:** {building_use if building_use else '❌ Missing'}")
-                            st.write(f"**Approach:** {approach if approach else '❌ Missing'}")
-                            st.write(f"**Sample Size:** {sample_size if sample_size else '❌ Missing'}")
-                        
-                        with col_action:
-                            if st.button(f"✏️ Edit", key=f"multi_edit_{record_id}", use_container_width=True):
-                                st.session_state[f"admin_full_edit_{record_id}"] = True
-                                st.rerun()
-                
-                if len(records_with_multiple_missing) > 10:
-                    st.write(f"... and {len(records_with_multiple_missing) - 10} more records")
-            else:
-                st.success("🎉 No records with multiple missing fields!")
-        with col3:
-            if st.button("🔍 View Table Schema", key="admin_schema_view", use_container_width=True):
-                st.info("**Current Table Columns:**")
-                for col_name in column_names:
-                    st.write(f"- {col_name}")
+            # Study content - ALWAYS VISIBLE, not in expander
+            st.write("**Study Content:**")
+            display_study_content(paragraph, record_id)
 
 
 def review_pending_data():
@@ -3317,73 +3748,27 @@ def review_pending_data():
                     st.rerun()
         
         if st.session_state.get(f"admin_pending_edit_{record_id}"):
-            # Edit mode for pending records
-            col1, col2 = st.columns(2)
+            # Use the unified edit form for pending records
+            record_data = {
+                'criteria': criteria,
+                'energy_method': energy_method,
+                'direction': direction,
+                'paragraph': paragraph,
+                'user': user,
+                'status': status,
+                'scale': None,  # Pending records won't have these
+                'climate': None,
+                'location': None,
+                'building_use': None,
+                'approach': None,
+                'sample_size': None
+            }
             
-            with col1:
-                new_criteria = st.text_input("Determinant", value=criteria, key=f"admin_pending_criteria_{record_id}")
-                new_energy_method = st.text_input("Energy Output", value=energy_method, key=f"admin_pending_method_{record_id}")
-            
-            with col2:
-                new_direction = st.radio("Direction", ["Increase", "Decrease"],
-                                       index=0 if direction == "Increase" else 1,
-                                       key=f"admin_pending_direction_{record_id}", horizontal=True)
-            
-            new_paragraph = st.text_area("Study Content", value=paragraph, height=150, key=f"admin_pending_paragraph_{record_id}")
-            
-            # Action buttons in edit mode
-            col_save, col_approve, col_reject, col_cancel = st.columns(4)
-            
-            with col_save:
-                if st.button("💾 Save", key=f"admin_pending_save_{record_id}", use_container_width=True):
-                    # Save edits but keep as pending
-                    conn_edit = sqlite3.connect("my_database.db")
-                    cursor_edit = conn_edit.cursor()
-                    cursor_edit.execute('''
-                        UPDATE energy_data 
-                        SET criteria = ?, energy_method = ?, direction = ?, paragraph = ?
-                        WHERE id = ?
-                    ''', (new_criteria, new_energy_method, new_direction, new_paragraph, record_id))
-                    conn_edit.commit()
-                    conn_edit.close()
-                    st.session_state[f"admin_pending_edit_{record_id}"] = False
-                    st.success(f"Record {record_id} updated!")
-                    time.sleep(1)
-                    st.rerun()
-            
-            with col_approve:
-                if st.button("✅ Approve", key=f"admin_pending_approve_edit_{record_id}", use_container_width=True, type="primary"):
-                    # Save edits and approve
-                    conn_edit = sqlite3.connect("my_database.db")
-                    cursor_edit = conn_edit.cursor()
-                    cursor_edit.execute('''
-                        UPDATE energy_data 
-                        SET criteria = ?, energy_method = ?, direction = ?, paragraph = ?, status = 'approved'
-                        WHERE id = ?
-                    ''', (new_criteria, new_energy_method, new_direction, new_paragraph, record_id))
-                    conn_edit.commit()
-                    conn_edit.close()
-                    st.session_state[f"admin_pending_edit_{record_id}"] = False
-                    st.success(f"Record {record_id} approved and updated!")
-                    time.sleep(1)
-                    st.rerun()
-            
-            with col_reject:
-                if st.button("❌ Reject", key=f"admin_pending_reject_edit_{record_id}", use_container_width=True):
-                    conn_edit = sqlite3.connect("my_database.db")
-                    cursor_edit = conn_edit.cursor()
-                    cursor_edit.execute("UPDATE energy_data SET status = 'rejected' WHERE id = ?", (record_id,))
-                    conn_edit.commit()
-                    conn_edit.close()
-                    st.session_state[f"admin_pending_edit_{record_id}"] = False
-                    st.error(f"Record {record_id} rejected.")
-                    time.sleep(1)
-                    st.rerun()
-            
-            with col_cancel:
-                if st.button("🚫 Cancel", key=f"admin_pending_cancel_{record_id}", use_container_width=True):
-                    st.session_state[f"admin_pending_edit_{record_id}"] = False
-                    st.rerun()
+            saved = display_unified_edit_form(record_id, record_data, is_pending=True)
+            if saved:
+                st.session_state[f"admin_pending_edit_{record_id}"] = False
+                time.sleep(1)
+                st.rerun()
                     
         else:
             # View mode for pending records
@@ -4601,12 +4986,6 @@ def render_unified_search_interface(enable_editing=False):
 
             # Study content - always visible
             display_study_content(paragraph, record_id)
-            
-            # Only show edit buttons for admin users
-            if enable_editing and st.session_state.user_role == "admin":
-                if st.button("✏️ Edit Record", key=f"edit_btn_{record_id}", use_container_width=True):
-                    st.session_state[f"edit_record_{record_id}"] = True
-                    st.rerun()
     
     elif actual_criteria or actual_method or selected_direction:
         st.warning("Please select a determinant, energy output, and direction to see results")
@@ -4732,7 +5111,7 @@ if st.session_state.logged_in:
         tab0, tab1, tab2 = tabs
         
         with tab0:
-            render_spatialbuild_tab(enable_editing=True)
+            render_spatialbuild_tab(enable_editing=False)  # Edit button removed from here
         
         with tab1:
             render_contribute_tab()
