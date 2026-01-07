@@ -2845,7 +2845,6 @@ def manage_scale_climate_data():
                     st.rerun()
         
         # Display/Edit all fields
-                   # Display/Edit all fields
             if st.session_state.get(f"admin_full_edit_{record_id}"):
                 # Edit Mode - All fields editable
                 col1, col2 = st.columns(2)
@@ -2879,16 +2878,21 @@ def manage_scale_climate_data():
                 
                 with col2:
                     # Climate (editable)
-                    climate_options_list = ["Select climate"] + [formatted for formatted, color in query_dominant_climate_options(conn)] + ["Add new climate"]
+                    climate_options_list = ["Select dominant climate"] + [formatted for formatted, color in query_dominant_climate_options(conn)] + ["Add new climate"]
                     
                     # Find current climate in options
-                    current_climate_index = 0
-                    for i, opt in enumerate(climate_options_list):
-                        if climate and climate in opt:
+                # Find current climate in options (without counts for display)
+                current_climate_index = 0
+                for i, opt in enumerate(climate_options_list):
+                    if climate:
+                        # Compare without counts for matching
+                        opt_without_count = opt.split(" [")[0] if " [" in opt else opt
+                        climate_clean = climate.split(" - ")[0] if " - " in climate else climate
+                        if climate_clean in opt_without_count or climate in opt_without_count:
                             current_climate_index = i
                             break
                     
-                    selected_climate = st.selectbox("Climate", 
+                    selected_climate = st.selectbox("Dominant Climate", 
                                                   options=climate_options_list,
                                                   index=current_climate_index,
                                                   key=f"admin_climate_{record_id}")
@@ -3003,7 +3007,13 @@ def manage_scale_climate_data():
                                 # Remove emoji to get just the code
                                 climate_code_clean = ''.join([c for c in climate_code_from_formatted if c.isalnum()])
                                 if climate_code_clean.upper() == climate.upper():
-                                    formatted_climate_display = formatted
+                                    # REMOVE COUNT FROM DISPLAY
+                                    # Format without count: "🟦 Cfa - Humid Subtropical"
+                                    # Split by " [" to remove count part
+                                    if " [" in formatted:
+                                        formatted_climate_display = formatted.split(" [")[0]
+                                    else:
+                                        formatted_climate_display = formatted
                                     break
                         
                         color = get_climate_color(climate)
@@ -4349,7 +4359,7 @@ def render_unified_search_interface(enable_editing=False):
                                     current_index = 0
                             
                             selected_climate = st.selectbox(
-                                "Filter by Climate",
+                                "Filter by Dominant Climate",
                                 options=climate_options_formatted,
                                 index=current_index,
                                 key="unified_climate"
@@ -4574,11 +4584,15 @@ def render_unified_search_interface(enable_editing=False):
                             climate_code_from_formatted = formatted.split(" - ")[0]
                             climate_code_clean = ''.join([c for c in climate_code_from_formatted if c.isalnum()])
                             if climate_code_clean.upper() == climate.upper():
-                                formatted_climate_display = formatted
+                                # REMOVE COUNT FROM DISPLAY
+                                if " [" in formatted:
+                                    formatted_climate_display = formatted.split(" [")[0]
+                                else:
+                                    formatted_climate_display = formatted
                                 break
                     
                     color = get_climate_color(climate)
-                    st.markdown(f"**Climate:** <span style='background-color: {color}; padding: 2px 8px; border-radius: 10px; color: black;'>{formatted_climate_display}</span>", unsafe_allow_html=True)
+                    st.markdown(f"**Dominant Climate:** <span style='background-color: {color}; padding: 2px 8px; border-radius: 10px; color: black;'>{formatted_climate_display}</span>", unsafe_allow_html=True)
                 
                 if approach:
                     st.write(f"**Approach:** {approach}")
