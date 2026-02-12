@@ -44,6 +44,9 @@ if "current_excel_df" not in st.session_state:
     st.session_state.current_excel_df = None
 if "selected_quality_filter" not in st.session_state:
     st.session_state.selected_quality_filter = ["exact_match", "strong_match", "strong_match_90pct", "good_match"]
+if "papers_page" not in st.session_state:
+    st.session_state.papers_page = 0
+
 
 # ADD THIS FOR EDIT FUNCTIONALITY:
 if "admin_editing_record_id" not in st.session_state:
@@ -325,169 +328,842 @@ def contribute():
             else:
                 st.warning("Please ensure the record is not empty before saving.")
 
-def import_location_climate_data_unique():
+def admin_import_and_match_studies_simple(uploaded_file):
+    """
+    Simplified study matching - ONLY matches study titles against paragraph content
+    AUTOMATICALLY detects study column
+    """
     global conn
-    st.subheader("Import Location, Climate & Scale Data")
+    
+    # Generate a unique session ID for this import
+    if "current_import_session" not in st.session_state:
+        st.session_state.current_import_session = f"import_{int(time.time())}"
+    
+    session_id = st.session_state.current_import_session
+    
+    # Check if we already have results
+    if f"matched_records_{session_id}" in st.session_state and f"unmatched_studies_{session_id}" in st.session_state:
+        st.info("📋 Using existing match results. Upload a new file to start over.")
+        
+        display_admin_matching_review_fixed(
+            st.session_state[f"matched_records_{session_id}"], 
+            st.session_state[f"unmatched_studies_{session_id}"], 
+            st.session_state.get(f"excel_df_{session_id}")
+        )
+        return st.session_state[f"matched_records_{session_id}"], st.session_state[f"unmatched_studies_{session_id}"]
+    
+    try:
+        # Read Excel file
+        df = pd.read_excel(uploaded_file, sheet_name=0)
+        
+        # Store the dataframe in session state
+        st.session_state[f"excel_df_{session_id}"] = df
+        
+        # AUTOMATICALLY DETECT study column
+        study_column = None
+        for col in df.columns:
+            col_lower = str(col).lower()
+            if any(keyword in col_lower for keyword in ['study', 'title', 'paper', 'reference', 'citation']):
+                study_column = col
+                break
+        
+        if not study_column:
+            # Fallback to first column
+            study_column = df.columns[0]
+            st.warning(f"⚠️ No obvious study column found. Using first column: '{study_column}'")
+        
+        st.session_state[f"study_column_{session_id}"] = study_column
+        
+        # Get study names
+        study_names = df[study_column].dropna().unique()
+        
+        matched_records = []
+        unmatched_studies = []
+        
+        st.info(f"🔍 Matching {len(study_names)} studies in database using title matching...")
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+
+        cursor = conn.cursor()
+        
+        for i, study_name in enumerate(study_names):
+            if pd.isna(study_name) or not study_name:
+                continue
+                
+            # Clean and normalize the study name
+            clean_study = preprocess_study_name(study_name)
+            
+            status_text.text(f"Searching: {clean_study[:50]}...")
+            
+            # Find matches
+            matches = find_study_matches_in_paragraph(cursor, clean_study, study_name)
+            
+            if matches:
+                for match_data in matches:
+                    matched_records.append({
+                        'excel_study': study_name,
+                        'excel_study_normalized': clean_study,
+                        'db_record_id': match_data['record_id'],
+                        'matching_paragraph': match_data['paragraph'],
+                        'criteria': match_data['criteria'],
+                        'energy_method': match_data['energy_method'],
+                        'direction': match_data['direction'],
+                        'scale': match_data['scale'],
+                        'climate': match_data['climate'],
+                        'location': match_data['location'],
+                        'confidence': match_data['confidence'],
+                        'match_position': match_data['match_position'],
+                        'match_percentage': match_data['match_percentage'],
+                        'matching_text': match_data['matching_text']
+                    })
+            else:
+                unmatched_studies.append({
+                    'study_name': study_name,
+                    'normalized_name': clean_study,
+                    'reason': 'No match found in paragraph field'
+                })
+            
+            progress_bar.progress((i + 1) / len(study_names))
+        
+        progress_bar.empty()
+        status_text.empty()
+        
+        # Sort matches by confidence
+        confidence_order = {
+            'exact_match': 0,
+            'strong_match': 1,
+            'good_match': 2,
+            'partial_match': 3,
+            'fuzzy_match': 4
+        }
+        
+        matched_records.sort(key=lambda x: (
+            confidence_order.get(x['confidence'], 999),
+            -x.get('match_percentage', 0)
+        ))
+        
+        # Store results
+        st.session_state[f"matched_records_{session_id}"] = matched_records
+        st.session_state[f"unmatched_studies_{session_id}"] = unmatched_studies
+        
+        display_admin_matching_review_fixed(matched_records, unmatched_studies, df)
+        
+        return matched_records, unmatched_studies
+        
+    except Exception as e:
+        st.error(f"Error during import: {e}")
+        import traceback
+        st.error(f"Detailed error: {traceback.format_exc()}")
+        return [], []
+
+
+def find_all_study_matches_in_paragraph(cursor, clean_study, original_study):
+    """
+    Find ALL matches using multiple title-based strategies - ONLY against paragraph field
+    Returns ALL matching database records, not just the first one
+    """
+    all_matches = []
+    
+    # Strategy 1: Exact substring match in paragraph - get ALL matches
+    exact_matches = find_all_exact_substring_matches_in_paragraph(cursor, clean_study, original_study)
+    all_matches.extend(exact_matches)
+    
+    # Only try other strategies if no exact matches found
+    if not all_matches:
+        # Strategy 2: Significant portion matching (80% of title) - get ALL matches
+        significant_matches = find_all_significant_portion_matches_in_paragraph(cursor, clean_study, original_study)
+        all_matches.extend(significant_matches)
+    
+    if not all_matches:
+        # Strategy 3: Keyword matching with significant words - get ALL matches
+        keyword_matches = find_all_keyword_based_matches_in_paragraph(cursor, clean_study, original_study)
+        all_matches.extend(keyword_matches)
+    
+    return all_matches
+
+
+def find_exact_substring_matches_in_paragraph(cursor, clean_study, original_study):
+    """Find exact or near-exact substring matches - ONLY in paragraph field"""
+    matches = []
+    
+    # Try different variations of the study title
+    search_terms = [
+        clean_study,
+        original_study,  # Try original first
+    ]
+    
+    # Remove duplicates and short terms
+    search_terms = list(dict.fromkeys([term for term in search_terms if term and len(term) > 10]))
+    
+    for term in search_terms:
+        try:
+            # ONLY search in paragraph field
+            cursor.execute('''
+                SELECT id, paragraph, criteria, energy_method, direction, scale, climate, location
+                FROM energy_data 
+                WHERE LOWER(paragraph) LIKE LOWER(?)
+            ''', (f'%{term}%',))
+            
+            results = cursor.fetchall()
+            
+            for result in results:
+                record_id, paragraph, criteria, energy_method, direction, scale, climate, location = result
+                paragraph_lower = paragraph.lower()
+                term_lower = term.lower()
+                
+                if term_lower in paragraph_lower:
+                    match_position = paragraph_lower.find(term_lower)
+                    match_percentage = (len(term) / len(paragraph)) * 100 if len(paragraph) > 0 else 0
+                    
+                    # Determine confidence level based on match quality
+                    if match_percentage > 30:
+                        confidence = 'exact_match'
+                    elif match_percentage > 15:
+                        confidence = 'strong_match'
+                    else:
+                        confidence = 'good_match'
+                    
+                    matches.append({
+                        'record_id': record_id,
+                        'paragraph': paragraph,
+                        'criteria': criteria,
+                        'energy_method': energy_method,
+                        'direction': direction,
+                        'scale': scale,
+                        'climate': climate,
+                        'location': location,
+                        'confidence': confidence,
+                        'match_position': match_position,
+                        'match_percentage': match_percentage,
+                        'matching_text': term
+                    })
+        except Exception as e:
+            # Skip this term if it causes SQL errors
+            continue
+    
+    return matches
+
+
+def find_all_significant_portion_matches_in_paragraph(cursor, clean_study, original_study):
+    """Find ALL matches using significant portions of the study title - ONLY in paragraph field"""
+    matches = []
+    
+    # Try different portions of the title
+    portions_to_try = []
+    
+    # If title is long, try first 80% and last 80%
+    if len(clean_study) > 30:
+        portion_80 = int(len(clean_study) * 0.8)
+        if portion_80 > 15:
+            portions_to_try.append(clean_study[:portion_80])
+            portions_to_try.append(clean_study[-portion_80:])
+    
+    # Try first 30 characters (common for citations)
+    if len(clean_study) > 30:
+        portions_to_try.append(clean_study[:30])
+    
+    # Try last 30 characters
+    if len(clean_study) > 30:
+        portions_to_try.append(clean_study[-30:])
+    
+    # Remove duplicates and short portions
+    portions_to_try = list(dict.fromkeys([p for p in portions_to_try if p and len(p) >= 15]))
+    
+    for portion in portions_to_try:
+        try:
+            # Get ALL matching records
+            cursor.execute('''
+                SELECT id, paragraph, criteria, energy_method, direction, scale, climate, location
+                FROM energy_data 
+                WHERE LOWER(paragraph) LIKE LOWER(?)
+            ''', (f'%{portion}%',))
+            
+            results = cursor.fetchall()
+            
+            for result in results:
+                record_id, paragraph, criteria, energy_method, direction, scale, climate, location = result
+                paragraph_lower = paragraph.lower()
+                portion_lower = portion.lower()
+                
+                if portion_lower in paragraph_lower:
+                    match_position = paragraph_lower.find(portion_lower)
+                    match_percentage = (len(portion) / len(clean_study)) * 100 if len(clean_study) > 0 else 0
+                    
+                    matches.append({
+                        'record_id': record_id,
+                        'paragraph': paragraph,
+                        'criteria': criteria,
+                        'energy_method': energy_method,
+                        'direction': direction,
+                        'scale': scale,
+                        'climate': climate,
+                        'location': location,
+                        'confidence': 'strong_match',
+                        'match_position': match_position,
+                        'match_percentage': match_percentage,
+                        'matching_text': portion
+                    })
+        except Exception as e:
+            # Skip this portion if it causes SQL errors
+            continue
+    
+    # Remove duplicate record IDs
+    unique_matches = []
+    seen_ids = set()
+    for match in matches:
+        if match['record_id'] not in seen_ids:
+            unique_matches.append(match)
+            seen_ids.add(match['record_id'])
+    
+    return unique_matches
+
+def find_all_study_matches_in_paragraph(cursor, clean_study, original_study):
+    """
+    Find ALL matches using multiple title-based strategies - ONLY against paragraph field
+    Returns ALL matching database records, not just the first one
+    """
+    all_matches = []
+    
+    # Strategy 1: Exact substring match in paragraph - get ALL matches
+    exact_matches = find_all_exact_substring_matches_in_paragraph(cursor, clean_study, original_study)
+    all_matches.extend(exact_matches)
+    
+    # Only try other strategies if no exact matches found
+    if not all_matches:
+        # Strategy 2: Significant portion matching (80% of title) - get ALL matches
+        significant_matches = find_all_significant_portion_matches_in_paragraph(cursor, clean_study, original_study)
+        all_matches.extend(significant_matches)
+    
+    if not all_matches:
+        # Strategy 3: Keyword matching with significant words - get ALL matches
+        keyword_matches = find_all_keyword_based_matches_in_paragraph(cursor, clean_study, original_study)
+        all_matches.extend(keyword_matches)
+    
+    return all_matches
+
+def find_all_keyword_based_matches_in_paragraph(cursor, clean_study, original_study):
+    """Find ALL matches based on significant keywords from the title - ONLY in paragraph field"""
+    matches = []
+    
+    # Extract meaningful keywords (excluding common words)
+    keywords = extract_significant_keywords(clean_study)
+    
+    if len(keywords) >= 2:  # Need at least 2 significant keywords
+        # Search for each keyword individually and combine results
+        potential_matches = {}
+        
+        for keyword in keywords[:5]:  # Limit to first 5 keywords
+            try:
+                # Get ALL matching records for this keyword
+                cursor.execute('''
+                    SELECT id, paragraph, criteria, energy_method, direction, scale, climate, location
+                    FROM energy_data 
+                    WHERE LOWER(paragraph) LIKE LOWER(?)
+                ''', (f'%{keyword}%',))
+                
+                results = cursor.fetchall()
+                
+                for result in results:
+                    record_id = result[0]
+                    
+                    if record_id not in potential_matches:
+                        potential_matches[record_id] = {
+                            'record': result,
+                            'keywords_found': 0,
+                            'paragraph': result[1]
+                        }
+                    
+                    potential_matches[record_id]['keywords_found'] += 1
+            except Exception as e:
+                # Skip this keyword if it causes SQL errors
+                continue
+        
+        # Keep ALL records that found multiple keywords
+        for record_id, match_data in potential_matches.items():
+            if match_data['keywords_found'] >= 2:  # At least 2 keywords found
+                record_id, paragraph, criteria, energy_method, direction, scale, climate, location = match_data['record']
+                confidence_score = (match_data['keywords_found'] / min(len(keywords), 5)) * 100
+                
+                if confidence_score >= 60:
+                    matches.append({
+                        'record_id': record_id,
+                        'paragraph': paragraph,
+                        'criteria': criteria,
+                        'energy_method': energy_method,
+                        'direction': direction,
+                        'scale': scale,
+                        'climate': climate,
+                        'location': location,
+                        'confidence': 'good_match',
+                        'match_position': 0,
+                        'match_percentage': confidence_score,
+                        'matching_text': f"Keywords: {', '.join(keywords[:3])}"
+                    })
+    
+    # Remove duplicate record IDs
+    unique_matches = []
+    seen_ids = set()
+    for match in matches:
+        if match['record_id'] not in seen_ids:
+            unique_matches.append(match)
+            seen_ids.add(match['record_id'])
+    
+    return unique_matches
+
+def import_location_climate_data_unique():
+    """Import climate, location, scale, building use, approach and sample size data - LOADS NOTHING UNTIL CONFIRMATION"""
+    global conn
+    st.subheader("Import Climate, Location, Scale, Building use, Approach and Sample size data")
     
     # Add reset button section at the top
     col1, col2 = st.columns(2)
-    
     with col1:
         st.warning("⚠️ **Reset Options**")
     with col2:
-        if st.button("🗑️ Clear All, Climate and Scale Data", key="clear_location_data_btn", use_container_width=True):
+        if st.button("🗑️ Clear Data", key="clear_location_data_btn", use_container_width=True):
             reset_location_climate_scale_data()
     
     st.markdown("---")
     
-    # File upload with UNIQUE key
+    # File upload
     uploaded_file = st.file_uploader("Upload Excel file with location/climate data", 
                                    type=["xlsx", "csv", "ods"],
                                    key="location_climate_import_unique")
     
     if uploaded_file is not None:
         try:
-            # NEW: Enable matching feature
-            use_matching = st.checkbox("🔍 Enable Automatic Study Matching", value=True, 
-                                     help="Automatically match Excel studies with database records")
+            # Read the file ONCE to show preview
+            df = pd.read_excel(uploaded_file, sheet_name=0)
             
-            if use_matching:
-                # Store the uploaded file in session state so it's available for processing
-                st.session_state.uploaded_excel_file = uploaded_file
+            # Show preview
+            st.write("**Preview of data to import:**")
+            st.dataframe(df.head(10))
+            
+            # Show column names
+            st.write(f"**Columns found in file:** {list(df.columns)}")
+            
+            # Column mapping interface
+            st.subheader("Map Columns")
+            st.write("Select which column in your Excel file corresponds to each database field:")
+            
+            col_mapper1, col_mapper2 = st.columns(2)
+            
+            with col_mapper1:
+                study_column = st.selectbox(
+                    "📄 Study Title Column (REQUIRED)",
+                    options=["-- Select column --"] + list(df.columns),
+                    key="map_study_column"
+                )
                 
-                # Use the enhanced matching import
-                matched, unmatched = admin_import_and_match_studies(uploaded_file)
-
-                # Read the Excel file and store it in session state
-                uploaded_file.seek(0)  # Reset file pointer
-                excel_df = pd.read_excel(uploaded_file, sheet_name=0)
-                st.session_state.current_excel_df = excel_df
-
-                display_admin_matching_review(matched, unmatched, excel_df)
-
-            else:
-                # Use the original import logic
-                df = pd.read_excel(uploaded_file, sheet_name=0)
+                location_column = st.selectbox(
+                    "📍 Location Column",
+                    options=["-- None --"] + list(df.columns),
+                    key="map_location_column"
+                )
                 
-                # Clean column names and data
-                df.columns = [str(col).strip() for col in df.columns]
+                climate_column = st.selectbox(
+                    "🌍 Climate Column",
+                    options=["-- None --"] + list(df.columns),
+                    key="map_climate_column"
+                )
                 
-                # FLEXIBLE COLUMN MAPPING - Handle different column names
-                column_mapping = {}
+                scale_column = st.selectbox(
+                    "📏 Scale Column",
+                    options=["-- None --"] + list(df.columns),
+                    key="map_scale_column"
+                )
+            
+            with col_mapper2:
+                building_use_column = st.selectbox(
+                    "🏢 Building Use Column",
+                    options=["-- None --"] + list(df.columns),
+                    key="map_building_use_column"
+                )
                 
-                # Map expected column names with flexibility
-                possible_study_cols = ['Study', 'study', 'Title', 'title', 'Paper', 'paper']
-                possible_location_cols = ['Location', 'location', 'Site', 'site', 'Region', 'region']
-                possible_climate_cols = ['Climate', 'climate', 'Climate Zone', 'climate_zone']
-                possible_scale_cols = ['Scale', 'scale', 'Scale (Coverage)', 'Scale. (Neighbourhood (rural, urban), Regional, National and State,)']
+                approach_column = st.selectbox(
+                    "🔬 Approach Column",
+                    options=["-- None --"] + list(df.columns),
+                    key="map_approach_column"
+                )
                 
+                sample_size_column = st.selectbox(
+                    "📊 Sample Size Column",
+                    options=["-- None --"] + list(df.columns),
+                    key="map_sample_size_column"
+                )
+            
+            # Import options
+            st.markdown("---")
+            st.subheader("Import Options")
+            
+            import_method = st.radio(
+                "Choose import method:",
+                ["🔍 Enhanced Matching (recommended)", "⚡ Direct Import (simple)"],
+                key="import_method_choice"
+            )
+            
+            # PROCESS BUTTON - This is the ONLY place we do the matching
+            if st.button("🔍 FIND MATCHES", type="primary", key="find_matches_button"):
                 
-                # Find matching columns
-                for col in df.columns:
-                    col_clean = str(col).strip()
-                    if any(study_col in col_clean for study_col in possible_study_cols):
-                        column_mapping[col] = 'study'
-                    elif any(loc_col in col_clean for loc_col in possible_location_cols):
-                        column_mapping[col] = 'location'
-                    elif any(climate_col in col_clean for climate_col in possible_climate_cols):
-                        column_mapping[col] = 'climate'
-                    elif any(scale_col in col_clean for scale_col in possible_scale_cols):
-                        column_mapping[col] = 'scale'
-                
-                # Check if we found a study column
-                if not any('study' in col.lower() for col in column_mapping.values()):
-                    st.error("No study column found in the uploaded file. Please ensure your Excel file has a column for study names.")
-                    st.write("Available columns:", list(df.columns))
+                if study_column == "-- Select column --":
+                    st.error("❌ Please select a Study Title column")
                     return
                 
-                # Rename columns
-                df = df.rename(columns=column_mapping)
-                
-                # Display preview
-                st.write("**Preview of data to import:**")
-                st.dataframe(df.head(10))
-                
-                # Show statistics
-                st.write(f"**Total records in file:** {len(df)}")
-                st.write(f"**Columns:** {list(df.columns)}")
-                
-                # Import button with unique key
-                if st.button("Import Data to Database", type="primary", key="import_button_unique"):
-                    import_progress = st.progress(0)
-                    status_text = st.empty()
+                with st.spinner("Processing import..."):
+                    # Clear ALL existing import session state
+                    keys_to_delete = [k for k in st.session_state.keys() if 
+                                    k.startswith("import_session_") or 
+                                    k.startswith("match_confirmations_") or
+                                    k.startswith("select_all_active_") or
+                                    k.startswith("match_page_") or
+                                    k.startswith("matched_records_") or
+                                    k.startswith("unmatched_studies_") or
+                                    k.startswith("excel_df_")]
+                    for key in keys_to_delete:
+                        if key in st.session_state:
+                            del st.session_state[key]
                     
-                    # FIX: Use context manager instead of manual connection
+                    # Create new session ID
+                    session_id = f"import_{int(time.time())}"
+                    st.session_state[f"import_session_{session_id}"] = True
+                    st.session_state.current_import_session = session_id
                     
-                    cursor = conn.cursor()
+                    # Store the dataframe
+                    uploaded_file.seek(0)
+                    df_full = pd.read_excel(uploaded_file, sheet_name=0)
+                    st.session_state[f"excel_df_{session_id}"] = df_full
+                    st.session_state[f"study_column_{session_id}"] = study_column
                     
-                    updated_count = 0
-                    not_found_studies = []
-                    
-                    for index, row in df.iterrows():
-                        # Update progress
-                        progress = (index + 1) / len(df)
-                        import_progress.progress(progress)
-                        status_text.text(f"Processing {index + 1}/{len(df)}: {row['study'][:50]}...")
+                    if "🔍 Enhanced Matching" in import_method:
+                        # Perform matching ONCE and store results
+                        matched_records, unmatched_studies = perform_study_matching(df_full, study_column)
                         
-                        # Clean study name for matching (remove extra spaces, etc.)
-                        study_name = str(row['study']).strip()
+                        # Store results in session state
+                        st.session_state[f"matched_records_{session_id}"] = matched_records
+                        st.session_state[f"unmatched_studies_{session_id}"] = unmatched_studies
                         
-                        # Try to find matching record in database
-                        # First, try exact match
-                        cursor.execute('''
-                            SELECT id, paragraph FROM energy_data 
-                            WHERE paragraph LIKE ? 
-                            OR paragraph LIKE ?
-                            LIMIT 1
-                        ''', (f'%{study_name}%', f'%{study_name[:30]}%'))
-                        
-                        result = cursor.fetchone()
-                        
-                        if result:
-                            record_id, paragraph = result
-                            
-                            # Update the record with location, climate, and scale data
-                            cursor.execute('''
-                                UPDATE energy_data 
-                                SET location = ?, climate = ?, scale = ?
-                                WHERE id = ?
-                            ''', (
-                                str(row.get('location', '')).strip(),
-                                str(row.get('climate', '')).strip(),
-                                str(row.get('scale', '')).strip(),
-                                record_id
-                            ))
-                            
-                            updated_count += 1
-                        else:
-                            not_found_studies.append(study_name)
-                    
-                        conn.commit()
-                    
-                    import_progress.empty()
-                    status_text.empty()
-                    
-                    # Show results
-                    st.success(f"✅ Import completed!")
-                    st.write(f"**Records updated:** {updated_count}")
-                    
-                    if not_found_studies:
-                        st.warning(f"**{len(not_found_studies)} studies not found in database:**")
-                        with st.expander("Show unmatched studies"):
-                            for study in not_found_studies[:20]:  # Show first 20
-                                st.write(f"- {study}")
-                            if len(not_found_studies) > 20:
-                                st.write(f"... and {len(not_found_studies) - 20} more")
-                    
-                    # Refresh to show updated data
-                    st.rerun()
+                        st.success(f"✅ Found {len(matched_records)} matches and {len(unmatched_studies)} unmatched studies")
+                        st.rerun()
+                    else:
+                        # Direct import code
+                        pass
+            
+            # DISPLAY RESULTS - This runs on every rerun, but only shows stored results
+            # Check if we have a current import session with results
+            current_session = st.session_state.get("current_import_session")
+            if current_session:
+                matched_records = st.session_state.get(f"matched_records_{current_session}")
+                unmatched_studies = st.session_state.get(f"unmatched_studies_{current_session}")
+                excel_df = st.session_state.get(f"excel_df_{current_session}")
                 
+                if matched_records is not None and unmatched_studies is not None:
+                    # Display the matching review with stored data
+                    display_admin_matching_review_fixed(matched_records, unmatched_studies, excel_df, current_session)
+                elif "🔍 Enhanced Matching" in import_method:
+                    st.info("👆 Click 'FIND MATCHES' to start the matching process")
+            else:
+                if "🔍 Enhanced Matching" in import_method:
+                    st.info("👆 Click 'FIND MATCHES' to start the matching process")
+                        
         except Exception as e:
             st.error(f"Error reading Excel file: {str(e)}")
-            st.write("Please check the file format and ensure it contains the correct sheet name.")
+            import traceback
+            st.error(f"Detailed error: {traceback.format_exc()}")
+
+def perform_study_matching(df, study_column):
+    """Perform the actual matching and return results - EXACT MATCHES ONLY"""
+    global conn
+    
+    # Get study names
+    study_names = df[study_column].dropna().unique()
+    
+    matched_records = []
+    unmatched_studies = []
+    
+    cursor = conn.cursor()
+    
+    for study_name in study_names:
+        if pd.isna(study_name) or not study_name:
+            continue
+            
+        # Clean and normalize the study name
+        clean_study = preprocess_study_name(study_name)
+        
+        # Find matches - exact only
+        matches = find_study_matches_in_paragraph(cursor, clean_study, study_name)
+        
+        if matches:
+            for match_data in matches:
+                matched_records.append({
+                    'excel_study': study_name,
+                    'excel_study_normalized': clean_study,
+                    'db_record_id': match_data['record_id'],
+                    'matching_paragraph': match_data['paragraph'],
+                    'criteria': match_data['criteria'],
+                    'energy_method': match_data['energy_method'],
+                    'direction': match_data['direction'],
+                    'scale': match_data['scale'],
+                    'climate': match_data['climate'],
+                    'location': match_data['location'],
+                    'confidence': match_data['confidence'],
+                    'match_position': match_data['match_position'],
+                    'match_percentage': 100,  # Set to 100 for exact matches
+                    'matching_text': match_data['matching_text']
+                })
+        else:
+            unmatched_studies.append({
+                'study_name': study_name,
+                'normalized_name': clean_study,
+                'reason': 'No exact match found in paragraph field'
+            })
+    
+    return matched_records, unmatched_studies
+
+def display_admin_matching_review_fixed(matched_records, unmatched_studies, excel_df, session_id):
+    """
+    Display the matching review interface - EXACT MATCHES ONLY with paragraph preview
+    """
+    
+    # Initialize session state for this session if not exists
+    confirmations_key = f"match_confirmations_{session_id}"
+    if confirmations_key not in st.session_state:
+        st.session_state[confirmations_key] = {}
+    
+    select_all_key = f"select_all_active_{session_id}"
+    if select_all_key not in st.session_state:
+        st.session_state[select_all_key] = False
+    
+    page_key = f"match_page_{session_id}"
+    if page_key not in st.session_state:
+        st.session_state[page_key] = 0
+    
+    # Start Over button
+    col1, col2 = st.columns([1, 5])
+    with col1:
+        if st.button("🔄 Start Over", key=f"start_over_{session_id}"):
+            # Clear this session's data
+            keys_to_delete = [k for k in st.session_state.keys() if session_id in k]
+            for key in keys_to_delete:
+                del st.session_state[key]
+            if st.session_state.get("current_import_session") == session_id:
+                del st.session_state["current_import_session"]
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # FILTER TO EXACT MATCHES ONLY
+    exact_matches = [m for m in matched_records if m['confidence'] == 'exact_match']
+    other_matches = [m for m in matched_records if m['confidence'] != 'exact_match']
+    
+    # Display match statistics
+    st.write("**Match Results:**")
+    st.write(f"🟢 Exact Matches: {len(exact_matches)}")
+    if other_matches:
+        st.warning(f"⚠️ {len(other_matches)} non-exact matches (strong/good) are not shown - only exact matches can be imported")
+    
+    if not exact_matches:
+        st.error("❌ No exact matches found. Please check your study titles and try again.")
+        if unmatched_studies:
+            with st.expander("📋 View Unmatched Studies", expanded=False):
+                for i, unmatched in enumerate(unmatched_studies[:20]):
+                    st.write(f"**{i+1}.** {unmatched['study_name']}")
+        return
+    
+    # Select All checkbox for exact matches only
+    select_all = st.checkbox(
+        f"✅ Select All {len(exact_matches)} Exact Matches", 
+        key=f"select_all_{session_id}",
+        value=st.session_state[select_all_key]
+    )
+    
+    # Update select all state
+    if select_all != st.session_state[select_all_key]:
+        st.session_state[select_all_key] = select_all
+        confirmations = st.session_state[confirmations_key]
+        for match in exact_matches:
+            match_id = f"match_{match['db_record_id']}_{session_id}"
+            confirmations[match_id] = select_all
+        st.session_state[confirmations_key] = confirmations
+        st.rerun()
+    
+    # IMPORT BUTTON
+    st.markdown("---")
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        if st.button("🚀 IMPORT SELECTED EXACT MATCHES", type="primary", use_container_width=True, key=f"import_main_{session_id}"):
+            # Collect confirmed exact matches
+            confirmed_matches = []
+            confirmations = st.session_state[confirmations_key]
+            
+            for match in exact_matches:
+                match_id = f"match_{match['db_record_id']}_{session_id}"
+                if confirmations.get(match_id, False):
+                    confirmed_matches.append(match)
+            
+            if confirmed_matches:
+                if excel_df is not None:
+                    with st.spinner(f"Importing {len(confirmed_matches)} exact matches..."):
+                        updated_count = process_confirmed_matches(confirmed_matches, excel_df)
+                        if updated_count > 0:
+                            st.success(f"✅ Successfully updated {updated_count} records!")
+                            # Clear confirmations after successful import
+                            st.session_state[confirmations_key] = {}
+                            time.sleep(2)
+                            st.rerun()
+                else:
+                    st.error("❌ Excel data not available.")
+            else:
+                st.warning("⚠️ No exact matches selected.")
+    with col2:
+        st.info(f"📊 {len(exact_matches)} exact matches available")
+    
+    st.markdown("---")
+    
+    # Pagination for exact matches
+    MATCHES_PER_PAGE = 5
+    total_pages = (len(exact_matches) + MATCHES_PER_PAGE - 1) // MATCHES_PER_PAGE
+    
+    if total_pages > 1:
+        col_prev, col_page, col_next = st.columns([1, 2, 1])
+        with col_prev:
+            if st.button("◀ Previous", disabled=st.session_state[page_key] == 0, key=f"prev_{session_id}"):
+                st.session_state[page_key] = max(0, st.session_state[page_key] - 1)
+                st.rerun()
+        with col_page:
+            st.write(f"**Page {st.session_state[page_key] + 1} of {total_pages}**")
+        with col_next:
+            if st.button("Next ▶", disabled=st.session_state[page_key] >= total_pages - 1, key=f"next_{session_id}"):
+                st.session_state[page_key] = min(total_pages - 1, st.session_state[page_key] + 1)
+                st.rerun()
+    
+    # Display current page exact matches
+    start_idx = st.session_state[page_key] * MATCHES_PER_PAGE
+    end_idx = min(start_idx + MATCHES_PER_PAGE, len(exact_matches))
+    current_page_matches = exact_matches[start_idx:end_idx]
+    
+    confirmations = st.session_state[confirmations_key]
+    
+    for i, match in enumerate(current_page_matches):
+        match_id = f"match_{match['db_record_id']}_{session_id}"
+        
+        # Initialize confirmation state if not exists
+        if match_id not in confirmations:
+            confirmations[match_id] = True  # Default to True for exact matches
+            st.session_state[confirmations_key] = confirmations
+        
+        # EXPANDER WITH PARAGRAPH PREVIEW IN TITLE
+        paragraph_preview = match['matching_paragraph'][:80] + "..." if len(match['matching_paragraph']) > 80 else match['matching_paragraph']
+        
+        with st.expander(
+            f"🟢 ID: {match['db_record_id']} | {match['excel_study'][:60]}... | 📄 {paragraph_preview}", 
+            expanded=False  # Start collapsed to save space
+        ):
+            # THREE COLUMN LAYOUT: Import checkbox + Study + Paragraph Preview
+            col_check, col_study, col_para = st.columns([1, 2, 2])
+            
+            with col_check:
+                confirmed = st.checkbox(
+                    "✅ Import",
+                    value=confirmations.get(match_id, True),
+                    key=f"chk_{match_id}"
+                )
+                if confirmed != confirmations.get(match_id, False):
+                    confirmations[match_id] = confirmed
+                    st.session_state[confirmations_key] = confirmations
+                
+                st.markdown(f"**Record:** `{match['db_record_id']}`")
+                st.markdown(f"**Confidence:** Exact")
+            
+            with col_study:
+                st.markdown("**📥 Imported Study:**")
+                st.info(match['excel_study'])
+                
+                st.markdown("**📊 Metadata:**")
+                st.write(f"**Determinant:** {match['criteria']}")
+                st.write(f"**Energy Output:** {match['energy_method']}")
+                st.write(f"**Direction:** {match['direction']}")
+            
+            with col_para:
+                st.markdown("**🗄️ Database Paragraph:**")
+                paragraph = match['matching_paragraph']
+                
+                # Highlight the match
+                study_normalized = match.get('excel_study_normalized', match['excel_study'])
+                if study_normalized.lower() in paragraph.lower():
+                    start = paragraph.lower().index(study_normalized.lower())
+                    end = start + len(study_normalized)
+                    highlighted = (
+                        paragraph[:start] + 
+                        "**" + paragraph[start:end] + "**" + 
+                        paragraph[end:]
+                    )
+                    st.markdown(highlighted)
+                else:
+                    st.write(paragraph)
+                
+                # Add copy button for paragraph
+                st.markdown("---")
+                st.caption("📋 Select text above to copy or use Ctrl+C")
+        
+        st.markdown("---")
+    
+    # Bottom import button for exact matches
+    if len(exact_matches) > MATCHES_PER_PAGE:
+        st.markdown("---")
+        if st.button("🚀 IMPORT SELECTED EXACT MATCHES", type="primary", use_container_width=True, key=f"import_bottom_{session_id}"):
+            confirmed_matches = []
+            confirmations = st.session_state[confirmations_key]
+            
+            for match in exact_matches:
+                match_id = f"match_{match['db_record_id']}_{session_id}"
+                if confirmations.get(match_id, False):
+                    confirmed_matches.append(match)
+            
+            if confirmed_matches and excel_df:
+                with st.spinner(f"Importing {len(confirmed_matches)} exact matches..."):
+                    updated_count = process_confirmed_matches(confirmed_matches, excel_df)
+                    if updated_count > 0:
+                        st.success(f"✅ Successfully updated {updated_count} records!")
+                        st.session_state[confirmations_key] = {}
+                        time.sleep(2)
+                        st.rerun()
+            else:
+                st.warning("⚠️ No exact matches selected.")
+    
+    # Unmatched studies section with more detail
+    if unmatched_studies:
+        st.markdown("---")
+        st.subheader("❌ Unmatched Studies")
+        st.warning(f"**{len(unmatched_studies)} studies couldn't be automatically matched**")
+        
+        with st.expander("📋 View Unmatched Studies with Details", expanded=False):
+            search_unmatched = st.text_input("🔍 Search unmatched studies", 
+                                           placeholder="Enter keyword...", 
+                                           key=f"search_unmatched_{session_id}")
+            
+            filtered_unmatched = unmatched_studies
+            if search_unmatched:
+                filtered_unmatched = [s for s in filtered_unmatched if search_unmatched.lower() in s['study_name'].lower()]
+            
+            for i, unmatched in enumerate(filtered_unmatched[:20]):
+                with st.expander(f"❌ {unmatched['study_name'][:100]}...", expanded=False):
+                    st.write(f"**Study:** {unmatched['study_name']}")
+                    st.write(f"**Normalized:** {unmatched['normalized_name']}")
+                    st.write(f"**Reason:** {unmatched.get('reason', 'No exact match found')}")
+                    
+                    # Add copy button
+                    st.code(unmatched['study_name'], language="text")
+                    
+                    # Optional: Quick search button
+                    if st.button(f"🔍 Search manually", key=f"manual_search_{i}_{session_id}"):
+                        st.info("Copy the study title above and search in the database manually")
+            
+            if len(filtered_unmatched) > 20:
+                st.write(f"... and {len(filtered_unmatched) - 20} more")
 
 def reset_location_climate_scale_data():
-    """Clear all climate, Location and scale data and reset to defaults"""
+    """Clear all climate, location, scale, building use, approach and sample size data and reset to defaults"""
     global conn
     cursor = conn.cursor()
     try:
@@ -499,7 +1175,7 @@ def reset_location_climate_scale_data():
         ''')
         
         conn.commit()
-        st.success("✅ All imported data cleared and reset! (Climate, Location, Scale)")
+        st.success("✅ All imported data cleared and reset! (climate, location, scale, building use, approach and sample size data)")
         
         # Show comprehensive statistics
         
@@ -710,138 +1386,34 @@ def admin_dashboard():
     tab1, tab2, tab3, tab4 = st.tabs(["Edit Records", "Review Pending Submissions", "Data Import", "Missing Data Review"])
     
     with tab1:
-        # Use the original manage_scale_climate_data function here instead of enhanced version
         manage_scale_climate_data()
     
     with tab2:
-        # Pending Data Review (existing code)
         review_pending_data()
         
     with tab3:
-        # New import tab - use unique key
+        # Make sure this doesn't auto-load
         import_location_climate_data_unique()
     
     with tab4:
-        # New Missing Data Review tab
         review_missing_data()
     
-    # Don't modify any session state that might affect sidebar rendering
     return
 
 
-def admin_import_and_match_studies(uploaded_file):
-    global conn
-    """
-    Enhanced Admin function: Import Excel and auto-match studies using only study titles
-    """
-    try:
-        # Read Excel file
-        df = pd.read_excel(uploaded_file, sheet_name=0)
-        
-        # Find study column (flexible naming)
-        study_column = None
-        for col in df.columns:
-            if any(keyword in col.lower() for keyword in ['study', 'title', 'paper', 'reference']):
-                study_column = col
-                break
-        
-        if not study_column:
-            st.error("No study/title column found in the uploaded file. Available columns: " + ", ".join(df.columns))
-            return [], []
-        
-        # Get study names
-        study_names = df[study_column].dropna().unique()
-        
-        matched_records = []
-        unmatched_studies = []
-        
-        st.info(f"🔍 Matching {len(study_names)} studies in database using enhanced title matching...")
-        
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-
-        cursor = conn.cursor()
-        
-        for i, study_name in enumerate(study_names):
-            if pd.isna(study_name) or not study_name:
-                continue
-                
-            # Clean and normalize the study name
-            clean_study = preprocess_study_name(study_name)
-            
-            status_text.text(f"Searching: {clean_study[:50]}...")
-            
-            # Try multiple matching strategies
-            matches = find_study_matches_by_title(cursor, clean_study, study_name)
-            
-            if matches:
-                for match_data in matches:
-                    matched_records.append({
-                        'excel_study': study_name,  # Original name
-                        'excel_study_normalized': clean_study,
-                        'db_record_id': match_data['record_id'],
-                        'matching_paragraph': match_data['paragraph'],
-                        'criteria': match_data['criteria'],
-                        'energy_method': match_data['energy_method'],
-                        'direction': match_data['direction'],
-                        'scale': match_data['scale'],
-                        'climate': match_data['climate'],
-                        'location': match_data['location'],
-                        'confidence': match_data['confidence'],
-                        'match_position': match_data['match_position'],
-                        'match_percentage': match_data['match_percentage'],
-                        'matching_text': match_data['matching_text']
-                    })
-            else:
-                unmatched_studies.append({
-                    'study_name': study_name,
-                    'normalized_name': clean_study,
-                    'reason': 'No database matches found with enhanced title matching'
-                })
-            
-            progress_bar.progress((i + 1) / len(study_names))
-        
-        progress_bar.empty()
-        status_text.empty()
-        
-        # Sort matches by confidence
-        confidence_order = {
-            'exact_match': 0,
-            'strong_match': 1,
-            'good_match': 2,
-            'partial_match': 3,
-            'fuzzy_match': 4
-        }
-        
-        matched_records.sort(key=lambda x: (
-            confidence_order.get(x['confidence'], 999),
-            -x.get('match_percentage', 0)
-        ))
-        
-        return matched_records, unmatched_studies
-        
-    except Exception as e:
-        st.error(f"Error during import: {e}")
-        import traceback
-        st.error(f"Detailed error: {traceback.format_exc()}")
-        return [], []
-
 def preprocess_study_name(study_name):
-    """Clean and normalize study names for better matching"""
+    """Clean and normalize study names - MINIMAL preprocessing"""
     if pd.isna(study_name) or not study_name:
         return ""
     
     # Convert to string and strip
     clean_name = str(study_name).strip()
     
-    # Remove extra whitespace and newlines
+    # Remove extra whitespace and newlines ONLY
     clean_name = ' '.join(clean_name.split())
     
-    # Remove common prefixes/suffixes that might interfere with matching
-    prefixes_to_remove = ['study of', 'analysis of', 'investigation of', 'the ']
-    for prefix in prefixes_to_remove:
-        if clean_name.lower().startswith(prefix):
-            clean_name = clean_name[len(prefix):].strip()
+    # DO NOT remove any prefixes - keep the title as intact as possible
+    # DO NOT lowercase here - we do case-insensitive matching in SQL
     
     return clean_name
 
@@ -1212,187 +1784,233 @@ def display_missing_record(item, category):
 
 
 def review_missing_data():
-    """Review and edit records with missing data - no filters, just clean display"""
+    """Review and edit records with missing data - LOADS NOTHING UNTIL SEARCH"""
     global conn
     st.subheader("📋 Missing Data Review")
     
-    # Check if we need to show an edit modal at the TOP
-    current_editing_record_id = st.session_state.get("current_editing_record_id")
-    current_editing_from = st.session_state.get("current_editing_from")
+    # Initialize session state
+    if "missing_data_search" not in st.session_state:
+        st.session_state.missing_data_search = False
+    if "missing_data_results" not in st.session_state:
+        st.session_state.missing_data_results = None
     
-    # If we're editing a record, show the modal at the TOP and return
-    if current_editing_record_id and current_editing_from == "missing_data":
-        show_edit_modal(current_editing_record_id, from_missing_data=True)
-        return  # Stop rendering the rest of the missing data review
+    # Simple search button
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("🔍 Find Missing Data", type="primary", use_container_width=True):
+            st.session_state.missing_data_search = True
+            st.rerun()
+    with col2:
+        st.write("Click to find records with missing scale, climate, or location data")
     
-    st.markdown("""
-    This section helps you find and fix records with missing data. 
-    No filters needed - just browse through records that need attention.
-    """)
-    
-    # Create a local database connection
-    conn_local = sqlite3.connect(db_file)
-    cursor = conn_local.cursor()
-    
-    # Get all records with any missing data
-    cursor.execute('''
-        SELECT id, criteria, energy_method, direction, paragraph, user, status, 
-               scale, climate, location, building_use, approach, sample_size
-        FROM energy_data 
-        WHERE status NOT IN ("pending", "rejected")
-          AND paragraph IS NOT NULL 
-          AND paragraph != '' 
-          AND paragraph != '0' 
-          AND paragraph != '0.0'
-          AND paragraph != 'None'
-          AND LENGTH(TRIM(paragraph)) > 0
-        ORDER BY id
-    ''')
-    all_records = cursor.fetchall()
-    
-    # Categorize records by missing data
-    records_missing_scale = []
-    records_missing_climate = []
-    records_missing_location = []
-    records_missing_building_use = []
-    records_missing_approach = []
-    records_missing_sample_size = []
-    records_multiple_missing = []
-    
-    for record in all_records:
-        record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
-        
-        missing_fields = []
-        
-        if scale in ["Awaiting data", "Not Specified", "", None] or not scale:
-            missing_fields.append("Scale")
-        
-        if climate in ["Awaiting data", "Not Specified", "", None] or not climate:
-            missing_fields.append("Climate")
-        
-        if location in ["", None] or not location:
-            missing_fields.append("Location")
-        
-        if building_use in ["", None] or not building_use:
-            missing_fields.append("Building Use")
-        
-        if approach in ["", None] or not approach:
-            missing_fields.append("Approach")
-        
-        if sample_size in ["", None] or not sample_size:
-            missing_fields.append("Sample Size")
-        
-        # Categorize the record
-        if missing_fields:
-            item = {
-                'record': record,
-                'missing_fields': missing_fields,
-                'missing_count': len(missing_fields)
-            }
+    # ONLY load data when search is clicked
+    if st.session_state.get("missing_data_search", False):
+        with st.spinner("Analyzing database..."):
+            cursor = conn.cursor()
             
-            if "Scale" in missing_fields:
-                records_missing_scale.append(item)
-            if "Climate" in missing_fields:
-                records_missing_climate.append(item)
-            if "Location" in missing_fields:
-                records_missing_location.append(item)
-            if "Building Use" in missing_fields:
-                records_missing_building_use.append(item)
-            if "Approach" in missing_fields:
-                records_missing_approach.append(item)
-            if "Sample Size" in missing_fields:
-                records_missing_sample_size.append(item)
+            # Single query with LIMIT to prevent overload
+            cursor.execute('''
+                SELECT id, criteria, energy_method, direction, paragraph, user, status, 
+                       scale, climate, location, building_use, approach, sample_size
+                FROM energy_data 
+                WHERE status NOT IN ("pending", "rejected")
+                  AND paragraph IS NOT NULL 
+                  AND paragraph != '' 
+                  AND paragraph != '0' 
+                  AND paragraph != '0.0'
+                  AND paragraph != 'None'
+                  AND LENGTH(TRIM(paragraph)) > 0
+                  AND (
+                      scale IN ("Awaiting data", "Not Specified", "", NULL) OR
+                      scale IS NULL OR
+                      climate IN ("Awaiting data", "Not Specified", "", NULL) OR
+                      climate IS NULL OR
+                      location IN ("", NULL)
+                  )
+                ORDER BY id DESC
+                LIMIT 200
+            ''')
             
-            if len(missing_fields) >= 2:
-                records_multiple_missing.append(item)
-    
-    # Create tabs for different missing data types
-    st.markdown("---")
-    missing_tabs = st.tabs([
-        f"Scale ({len(records_missing_scale)})",
-        f"Climate ({len(records_missing_climate)})", 
-        f"Location ({len(records_missing_location)})",
-        f"Building Use ({len(records_missing_building_use)})",
-        f"Approach ({len(records_missing_approach)})",
-        f"Sample Size ({len(records_missing_sample_size)})",
-        f"Multiple ({len(records_multiple_missing)})"
-    ])
-    
-    # Display records in each tab
-    # Tab 1: Missing Scale
-    with missing_tabs[0]:
-        if records_missing_scale:
-            st.write(f"**{len(records_missing_scale)} records missing scale data:**")
-            for item in records_missing_scale:
-                display_missing_record(item, "Scale")
-        else:
-            st.success("✅ All records have scale data!")
-    
-    # Tab 2: Missing Climate
-    with missing_tabs[1]:
-        if records_missing_climate:
-            st.write(f"**{len(records_missing_climate)} records missing climate data:**")
-            for item in records_missing_climate:
-                display_missing_record(item, "Climate")
-        else:
-            st.success("✅ All records have climate data!")
-    
-    # Tab 3: Missing Location
-    with missing_tabs[2]:
-        if records_missing_location:
-            st.write(f"**{len(records_missing_location)} records missing location data:**")
-            for item in records_missing_location:
-                display_missing_record(item, "Location")
-        else:
-            st.success("✅ All records have location data!")
-    
-    # Tab 4: Missing Building Use
-    with missing_tabs[3]:
-        if records_missing_building_use:
-            st.write(f"**{len(records_missing_building_use)} records missing building use data:**")
-            for item in records_missing_building_use:
-                display_missing_record(item, "Building Use")
-        else:
-            st.success("✅ All records have building use data!")
-    
-    # Tab 5: Missing Approach
-    with missing_tabs[4]:
-        if records_missing_approach:
-            st.write(f"**{len(records_missing_approach)} records missing approach data:**")
-            for item in records_missing_approach:
-                display_missing_record(item, "Approach")
-        else:
-            st.success("✅ All records have approach data!")
-    
-    # Tab 6: Missing Sample Size
-    with missing_tabs[5]:
-        if records_missing_sample_size:
-            st.write(f"**{len(records_missing_sample_size)} records missing sample size data:**")
-            for item in records_missing_sample_size:
-                display_missing_record(item, "Sample Size")
-        else:
-            st.success("✅ All records have sample size data!")
-    
-    # Tab 7: Multiple Missing
-    with missing_tabs[6]:
-        if records_multiple_missing:
-            # Sort by number of missing fields (most missing first)
-            records_multiple_missing.sort(key=lambda x: x['missing_count'], reverse=True)
-            st.write(f"**{len(records_multiple_missing)} records with 2+ missing fields:**")
-            for item in records_multiple_missing:
-                display_missing_record(item, "Multiple")
-        else:
-            st.success("🎉 No records with multiple missing fields!")
-    
-    # Show complete statistics (optional)
-    if all_records:
-        show_complete_statistics(all_records, records_missing_scale, records_missing_climate, 
-                               records_missing_location, records_missing_building_use,
-                               records_missing_approach, records_missing_sample_size, 
-                               records_multiple_missing)
-    
-    # Close the connection
-    conn_local.close()
+            records = cursor.fetchall()
+            st.session_state.missing_data_results = records
+            
+            st.write(f"**Found {len(records)} records with missing data**")
+            
+            if not records:
+                st.success("✅ No records with missing data found!")
+                if st.button("✕ Clear Results"):
+                    st.session_state.missing_data_search = False
+                    st.session_state.missing_data_results = None
+                    st.rerun()
+                return
+            
+            # Display results with pagination
+            PER_PAGE = 5
+            total_pages = (len(records) + PER_PAGE - 1) // PER_PAGE
+            
+            if "missing_data_page" not in st.session_state:
+                st.session_state.missing_data_page = 0
+            
+            if total_pages > 1:
+                col1, col2, col3 = st.columns([1, 2, 1])
+                with col1:
+                    if st.button("◀ Previous", disabled=st.session_state.missing_data_page == 0, key="missing_prev"):
+                        st.session_state.missing_data_page -= 1
+                        st.rerun()
+                with col2:
+                    st.write(f"**Page {st.session_state.missing_data_page + 1}/{total_pages}**")
+                with col3:
+                    if st.button("Next ▶", disabled=st.session_state.missing_data_page >= total_pages - 1, key="missing_next"):
+                        st.session_state.missing_data_page += 1
+                        st.rerun()
+            
+            start_idx = st.session_state.missing_data_page * PER_PAGE
+            end_idx = min(start_idx + PER_PAGE, len(records))
+            page_records = records[start_idx:end_idx]
+            
+            for record in page_records:
+                record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
+                
+                missing_fields = []
+                if not scale or scale in ["Awaiting data", "Not Specified", ""]:
+                    missing_fields.append("Scale")
+                if not climate or climate in ["Awaiting data", "Not Specified", ""]:
+                    missing_fields.append("Climate")
+                if not location:
+                    missing_fields.append("Location")
+                
+                # SINGLE COLUMN LAYOUT - Metadata then Paragraph then Actions
+                with st.expander(
+                    f"📄 Record {record_id}: {criteria} → {energy_method} ({direction}) | Missing: {', '.join(missing_fields)}", 
+                    expanded=False
+                ):
+                    # METADATA SECTION - Two columns for compact display
+                    col_meta1, col_meta2 = st.columns(2)
+                    
+                    with col_meta1:
+                        st.markdown(f"**ID:** `{record_id}`")
+                        st.markdown(f"**Determinant:** {criteria}")
+                        st.markdown(f"**Energy Output:** {energy_method}")
+                        st.markdown(f"**Direction:** {direction}")
+                        # st.markdown(f"**User:** {user}")
+                        # st.markdown(f"**Status:** {status}")
+                    
+                    with col_meta2:
+                        st.markdown("**❌ Missing Fields:**")
+                        for field in missing_fields:
+                            st.markdown(f"- 🔴 {field}")
+                        
+                        # st.markdown("**✅ Existing Data:**")
+                        # if scale and scale not in ["Awaiting data", "Not Specified", ""]:
+                        #     st.markdown(f"- 📏 Scale: {scale}")
+                        # if climate and climate not in ["Awaiting data", "Not Specified", ""]:
+                        #     st.markdown(f"- 🌍 Climate: {climate}")
+                        # if location:
+                        #     st.markdown(f"- 📍 Location: {location}")
+                        # if building_use:
+                        #     st.markdown(f"- 🏢 Building Use: {building_use}")
+                        # if approach:
+                        #     st.markdown(f"- 🔬 Approach: {approach}")
+                        # if sample_size:
+                        #     st.markdown(f"- 📊 Sample Size: {sample_size}")
+                        # if not any([scale not in ["Awaiting data", "Not Specified", ""] and scale,
+                        #           climate not in ["Awaiting data", "Not Specified", ""] and climate,
+                        #           location, building_use, approach, sample_size]):
+                        #     st.markdown("*No existing data*")
+                    
+                    st.markdown("---")
+                    
+                    # PARAGRAPH SECTION - Full width
+                    st.markdown("**Study Content:**")
+                    
+                    # Fix: Preserve line breaks by converting \n to <br> tags
+                    paragraph_html = paragraph.replace('\n', '<br>').replace('\r', '')
+                    
+                    st.markdown(
+                        f'''
+                        <div style="
+                            border: 1px solid #e0e0e0;
+                            padding: 15px;
+                            border-radius: 8px;
+                            background-color: #f8f9fa;
+                            max-height: 250px;
+                            overflow-y: auto;
+                            font-family: Arial, sans-serif;
+                            line-height: 1.5;
+                            font-size: 14px;
+                        ">
+                            {paragraph_html}
+                        </div>
+                        ''',
+                        unsafe_allow_html=True
+                    )
+                    
+                    st.markdown("---")
+                    
+                    # ACTION BUTTONS - Bottom right
+                    col_action1, col_action2, col_action3 = st.columns([3, 1, 1])
+                    with col_action2:
+                        # Edit button
+                        if st.button("Edit Record", key=f"edit_missing_{record_id}", use_container_width=True):
+                            st.session_state[f"edit_missing_record_{record_id}"] = True
+                            st.session_state[f"edit_missing_data_{record_id}"] = record
+                            st.session_state["current_editing_record_id"] = record_id
+                            st.session_state["current_editing_from"] = "missing_data"
+                            st.rerun()
+                    
+                    with col_action3:
+                        # Mark as pending button
+                        if status != "pending":
+                            if st.button("Mark for Review", key=f"pending_missing_{record_id}", use_container_width=True):
+                                cursor_edit = conn.cursor()
+                                cursor_edit.execute("UPDATE energy_data SET status = 'pending' WHERE id = ?", (record_id,))
+                                conn.commit()
+                                st.success(f"Record {record_id} marked for review")
+                                time.sleep(1)
+                                st.rerun()
+                    
+                    # EDIT FORM (if in edit mode) - Full width
+                    if st.session_state.get(f"edit_missing_record_{record_id}", False):
+                        st.markdown("---")
+                        st.markdown(f"###Editing Record {record_id}")
+                        
+                        # Get record data
+                        record_data = {
+                            'criteria': criteria,
+                            'energy_method': energy_method,
+                            'direction': direction,
+                            'paragraph': paragraph,
+                            'user': user,
+                            'status': status,
+                            'scale': scale,
+                            'climate': climate,
+                            'location': location,
+                            'building_use': building_use,
+                            'approach': approach,
+                            'sample_size': sample_size
+                        }
+                        
+                        def clear_edit_mode():
+                            st.session_state[f"edit_missing_record_{record_id}"] = False
+                            if f"edit_missing_data_{record_id}" in st.session_state:
+                                del st.session_state[f"edit_missing_data_{record_id}"]
+                            if "current_editing_record_id" in st.session_state:
+                                del st.session_state["current_editing_record_id"]
+                            if "current_editing_from" in st.session_state:
+                                del st.session_state["current_editing_from"]
+                        
+                        saved = display_unified_edit_form(record_id, record_data, is_pending=False, 
+                                                         clear_edit_callback=clear_edit_mode, from_missing_data=True)
+                        if saved:
+                            clear_edit_mode()
+                            time.sleep(1)
+                            st.rerun()
+            
+            # Clear results button
+            if st.button("✕ Clear Results & Start Over"):
+                st.session_state.missing_data_search = False
+                st.session_state.missing_data_results = None
+                st.rerun()
 
 def show_complete_statistics(all_records, missing_scale, missing_climate, missing_location, 
                            missing_building_use, missing_approach, missing_sample_size, missing_multiple):
@@ -1465,24 +2083,25 @@ def convert_urls_to_links(text):
     return text
 
 def display_study_content(paragraph, record_id):
-    """Simple display of study content"""
-    # Convert URLs to clickable links
+    """Display study content in an adjustable text area with clickable URLs"""
+    # Convert URLs to clickable HTML links
     paragraph_with_links = convert_urls_to_links(paragraph)
     
-    #st.text_area(f"Study Content", value=paragraph, height=150, key=f"content_{record_id}", disabled=False)
-    # # Display in a styled container
+    # Use markdown with HTML to create a scrollable, resizable container with clickable links
     st.markdown(
         f'''
         <div style="
             border: 1px solid #e0e0e0;
             padding: 15px;
             border-radius: 8px;
-            background-color: #f8f9fa;
-            max-height: 250px;
+            background-color: #f9f9fb;  /* Light grey tint */
+            max-height: 300px;
             overflow-y: auto;
             font-family: Arial, sans-serif;
             line-height: 1.5;
             font-size: 14px;
+            resize: vertical;
+            min-height: 100px;
         ">
             {paragraph_with_links}
         </div>
@@ -1490,6 +2109,20 @@ def display_study_content(paragraph, record_id):
         unsafe_allow_html=True
     )
     
+def find_study_matches_in_paragraph(cursor, clean_study, original_study):
+    """
+    Find matches using exact substring matching - ONLY against paragraph field
+    Returns ONLY exact matches
+    """
+    matches = []
+    
+    # Strategy: Exact substring match in paragraph - get ALL matches
+    exact_matches = find_all_exact_substring_matches_in_paragraph(cursor, clean_study, original_study)
+    matches.extend(exact_matches)
+    
+    # NO other strategies - exact matches only
+    
+    return matches
 
 def find_study_matches_by_title(cursor, clean_study, original_study):
     """Find matches using multiple title-based strategies"""
@@ -1501,7 +2134,7 @@ def find_study_matches_by_title(cursor, clean_study, original_study):
     
     if not matches:
         # Strategy 2: Significant portion matching (80% of title)
-        significant_matches = find_significant_portion_matches(cursor, clean_study, original_study)
+        significant_matches = find_all_significant_portion_matches_in_paragraph(cursor, clean_study, original_study)
         matches.extend(significant_matches)
     
     if not matches:
@@ -1511,8 +2144,8 @@ def find_study_matches_by_title(cursor, clean_study, original_study):
     
     return matches
 
-def find_exact_substring_matches(cursor, clean_study, original_study):
-    """Find exact or near-exact substring matches"""
+def find_all_exact_substring_matches_in_paragraph(cursor, clean_study, original_study):
+    """Find ALL exact substring matches - ONLY in paragraph field, NO percentage threshold"""
     matches = []
     
     # Try different variations of the study title
@@ -1521,11 +2154,21 @@ def find_exact_substring_matches(cursor, clean_study, original_study):
         original_study,  # Try original first
     ]
     
+    # Also try a shorter version - first 40 chars (enough to be unique)
+    if len(original_study) > 40:
+        search_terms.append(original_study[:40])
+    
     # Remove duplicates
-    search_terms = list(dict.fromkeys([term for term in search_terms if term and len(term) > 10]))
+    search_terms = list(dict.fromkeys([term for term in search_terms if term and len(term) > 15]))
+    # ^ Lowered threshold from 10 to 15? Actually, let's just remove the length restriction entirely
+    # for the primary search terms
     
     for term in search_terms:
+        if not term or len(term) < 10:  # Only filter extremely short terms
+            continue
+            
         try:
+            # Get ALL matching records
             cursor.execute('''
                 SELECT id, paragraph, criteria, energy_method, direction, scale, climate, location
                 FROM energy_data 
@@ -1539,18 +2182,8 @@ def find_exact_substring_matches(cursor, clean_study, original_study):
                 paragraph_lower = paragraph.lower()
                 term_lower = term.lower()
                 
+                # ONLY exact substring matches
                 if term_lower in paragraph_lower:
-                    match_position = paragraph_lower.find(term_lower)
-                    match_percentage = (len(term) / len(paragraph)) * 100
-                    
-                    # Determine confidence level
-                    if match_percentage > 30:
-                        confidence = 'exact_match'
-                    elif match_percentage > 15:
-                        confidence = 'strong_match'
-                    else:
-                        confidence = 'good_match'
-                    
                     matches.append({
                         'record_id': record_id,
                         'paragraph': paragraph,
@@ -1560,148 +2193,55 @@ def find_exact_substring_matches(cursor, clean_study, original_study):
                         'scale': scale,
                         'climate': climate,
                         'location': location,
-                        'confidence': confidence,
-                        'match_position': match_position,
-                        'match_percentage': match_percentage,
+                        'confidence': 'exact_match',
+                        'match_position': paragraph_lower.find(term_lower),
+                        'match_percentage': 100,
                         'matching_text': term
                     })
         except Exception as e:
-            # Skip this term if it causes SQL errors
             continue
     
-    return matches
+    # Remove duplicate record IDs
+    unique_matches = []
+    seen_ids = set()
+    for match in matches:
+        if match['record_id'] not in seen_ids:
+            unique_matches.append(match)
+            seen_ids.add(match['record_id'])
+    
+    return unique_matches
 
-def find_significant_portion_matches(cursor, clean_study, original_study):
-    """Match using significant portions of the study title"""
-    matches = []
+def debug_study_matching(study_name, paragraph):
+    """Debug why a study isn't matching"""
+    st.write("--- DEBUG ---")
+    st.write(f"**Original study:** {study_name}")
     
-    # Try different portions of the title
-    portions_to_try = []
+    clean = preprocess_study_name(study_name)
+    st.write(f"**Cleaned study:** {clean}")
     
-    # If title is long, try first 80% and last 80%
-    if len(clean_study) > 30:
-        portion_80 = int(len(clean_study) * 0.8)
-        portions_to_try.append(clean_study[:portion_80])
-        portions_to_try.append(clean_study[-portion_80:])
+    st.write(f"**Paragraph excerpt:** {paragraph[:100]}...")
     
-    # Try first 30 characters (common for citations)
-    if len(clean_study) > 30:
-        portions_to_try.append(clean_study[:30])
-    
-    # Try last 30 characters
-    if len(clean_study) > 30:
-        portions_to_try.append(clean_study[-30:])
-    
-    # Remove duplicates and short portions
-    portions_to_try = list(dict.fromkeys([p for p in portions_to_try if p and len(p) >= 15]))
-    
-    for portion in portions_to_try:
-        try:
-            cursor.execute('''
-                SELECT id, paragraph, criteria, energy_method, direction, scale, climate, location
-                FROM energy_data 
-                WHERE LOWER(paragraph) LIKE LOWER(?)
-            ''', (f'%{portion}%',))
-            
-            results = cursor.fetchall()
-            
-            for result in results:
-                record_id, paragraph, criteria, energy_method, direction, scale, climate, location = result
-                paragraph_lower = paragraph.lower()
-                portion_lower = portion.lower()
-                
-                if portion_lower in paragraph_lower:
-                    match_position = paragraph_lower.find(portion_lower)
-                    match_percentage = (len(portion) / len(clean_study)) * 100
-                    
-                    matches.append({
-                        'record_id': record_id,
-                        'paragraph': paragraph,
-                        'criteria': criteria,
-                        'energy_method': energy_method,
-                        'direction': direction,
-                        'scale': scale,
-                        'climate': climate,
-                        'location': location,
-                        'confidence': 'strong_match',
-                        'match_position': match_position,
-                        'match_percentage': match_percentage,
-                        'matching_text': portion
-                    })
-        except Exception as e:
-            # Skip this portion if it causes SQL errors
-            continue
-    
-    return matches
-
-def find_keyword_based_matches(cursor, clean_study, original_study):
-    """Match based on significant keywords from the title"""
-    matches = []
-    
-    # Extract meaningful keywords (excluding common words)
-    keywords = extract_significant_keywords(clean_study)
-    
-    if len(keywords) >= 2:  # Need at least 2 significant keywords
-        # Try different combinations - SIMPLIFIED to avoid complex SQL building
-        search_strategies = [
-            keywords[:3],  # First 3 keywords only
-        ]
+    # Check if cleaned version is in paragraph
+    if clean.lower() in paragraph.lower():
+        st.success(f"✓ Cleaned version found in paragraph")
+    else:
+        st.error(f"✗ Cleaned version NOT found in paragraph")
         
-        for strategy_keywords in search_strategies:
-            if len(strategy_keywords) < 2:
-                continue
-                
-            # Use a simpler approach - search for each keyword individually and combine results
-            potential_matches = {}
+        # Try to find what's different
+        para_lower = paragraph.lower()
+        clean_lower = clean.lower()
+        
+        # Check first 20 chars
+        if clean_lower[:20] in para_lower:
+            st.info(f"First 20 chars match: '{clean[:20]}'")
+        else:
+            st.warning(f"First 20 chars don't match: '{clean[:20]}'")
             
-            for keyword in strategy_keywords:
-                try:
-                    cursor.execute('''
-                        SELECT id, paragraph, criteria, energy_method, direction, scale, climate, location
-                        FROM energy_data 
-                        WHERE LOWER(paragraph) LIKE LOWER(?)
-                    ''', (f'%{keyword}%',))
-                    
-                    results = cursor.fetchall()
-                    
-                    for result in results:
-                        record_id, paragraph, criteria, energy_method, direction, scale, climate, location = result
-                        
-                        if record_id not in potential_matches:
-                            potential_matches[record_id] = {
-                                'record': result,
-                                'keywords_found': 0,
-                                'paragraph': paragraph
-                            }
-                        
-                        potential_matches[record_id]['keywords_found'] += 1
-                except Exception as e:
-                    # Skip this keyword if it causes SQL errors
-                    continue
-            
-            # Only keep records that found multiple keywords
-            for record_id, match_data in potential_matches.items():
-                if match_data['keywords_found'] >= 2:  # At least 2 keywords found
-                    record_id, paragraph, criteria, energy_method, direction, scale, climate, location = match_data['record']
-                    confidence_score = (match_data['keywords_found'] / len(strategy_keywords)) * 100
-                    
-                    if confidence_score >= 60:
-                        matches.append({
-                            'record_id': record_id,
-                            'paragraph': paragraph,
-                            'criteria': criteria,
-                            'energy_method': energy_method,
-                            'direction': direction,
-                            'scale': scale,
-                            'climate': climate,
-                            'location': location,
-                            'confidence': 'good_match',
-                            'match_position': 0,
-                            'match_percentage': confidence_score,
-                            'matching_text': f"Keywords: {', '.join(strategy_keywords)}"
-                        })
-    
-    return matches
+        # Check last 20 chars
+        if clean_lower[-20:] in para_lower:
+            st.info(f"Last 20 chars match: '{clean[-20:]}'")
+        else:
+            st.warning(f"Last 20 chars don't match: '{clean[-20:]}'")
 
 def extract_significant_keywords(text):
     """Extract meaningful keywords, excluding common words"""
@@ -1902,7 +2442,43 @@ def attempt_manual_match(unmatched_study, conn):
 def display_admin_matching_review(matched_records, unmatched_studies, excel_df=None):
     """
     Display the matching review interface for admin with unmatched studies inspection
+    FIXED: Proper session state management with session-specific keys
     """
+    
+    # Get the current session ID
+    session_id = st.session_state.get("current_import_session", f"import_{int(time.time())}")
+    
+    # Initialize match confirmations dictionary in session state if not exists
+    confirmations_key = f"match_confirmations_{session_id}"
+    if confirmations_key not in st.session_state:
+        st.session_state[confirmations_key] = {}
+    
+    # Initialize select all state
+    select_all_key = f"select_all_active_{session_id}"
+    if select_all_key not in st.session_state:
+        st.session_state[select_all_key] = False
+    
+    # Initialize page state
+    page_key = f"match_page_{session_id}"
+    if page_key not in st.session_state:
+        st.session_state[page_key] = 0
+    
+    # Add a "Start Over" button to clear session state
+    col1, col2, col3 = st.columns([1, 1, 2])
+    with col1:
+        if st.button("🔄 Start Over", key=f"start_over_{session_id}"):
+            # Clear all session state for this import
+            keys_to_delete = [k for k in st.session_state.keys() if session_id in k]
+            for key in keys_to_delete:
+                del st.session_state[key]
+            if "current_import_session" in st.session_state:
+                del st.session_state["current_import_session"]
+            st.rerun()
+    
+    with col2:
+        st.info(f"Session: {session_id[-6:]}")
+    
+    st.markdown("---")
     
     # Match quality statistics
     exact_count = len([m for m in matched_records if m['confidence'] == 'exact_match'])
@@ -1926,310 +2502,239 @@ def display_admin_matching_review(matched_records, unmatched_studies, excel_df=N
         'good_match': '🟠 Good Match'
     }
     
+    filter_key = f"quality_filter_{session_id}"
     selected_qualities = st.multiselect(
         "Select confidence levels to show:",
         options=quality_options,
         format_func=lambda x: quality_descriptions.get(x, x),
-        default=quality_options,  # Show all by default
-        key="simple_quality_filter"
+        default=quality_options,
+        key=filter_key
     )
     
     # Filter matches by quality
     filtered_matches = [m for m in matched_records if m['confidence'] in selected_qualities]
-
-    # IMPORT BUTTON AT THE TOP
-    confirmed_matches = []
     
     # Quick select all checkbox at the top
-    select_all = st.checkbox("Select All Filtered Matches", key="select_all_matches")
+    select_all = st.checkbox(
+        "Select All Filtered Matches", 
+        key=f"select_all_{session_id}",
+        value=st.session_state[select_all_key]
+    )
     
-    # Process confirmed matches button at the TOP
-    if filtered_matches and st.button("🚀 Import Data for Selected Matches", type="primary", key="import_top_button"):
-        # If "Select All" is checked, confirm all filtered matches
-        if select_all:
-            confirmed_matches = filtered_matches
-        else:
-            # Otherwise, collect only the confirmed ones
+    # Update select all state and all confirmations if changed
+    if select_all != st.session_state[select_all_key]:
+        st.session_state[select_all_key] = select_all
+        # Update all confirmation states
+        confirmations = st.session_state[confirmations_key]
+        for i, match in enumerate(filtered_matches):
+            match_id = f"match_{i}_{match['db_record_id']}_{session_id}"
+            confirmations[match_id] = select_all
+        st.session_state[confirmations_key] = confirmations
+        st.rerun()
+    
+    # IMPORT BUTTON - ALWAYS VISIBLE AT TOP
+    st.markdown("---")
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        import_top_key = f"import_main_{session_id}"
+        if st.button("🚀 IMPORT SELECTED MATCHES", type="primary", use_container_width=True, key=import_top_key):
+            # Collect all confirmed matches
+            confirmed_matches = []
+            confirmations = st.session_state[confirmations_key]
+            
             for i, match in enumerate(filtered_matches):
-                if st.session_state.get(f"match_confirm_{i}", match['confidence'] == 'exact_match'):
+                match_id = f"match_{i}_{match['db_record_id']}_{session_id}"
+                if confirmations.get(match_id, False):
                     confirmed_matches.append(match)
-        
-        if confirmed_matches:
-            # Use the Excel data from session state
-            current_excel_df = st.session_state.get('current_excel_df')
-            if current_excel_df is not None:
-                updated_count = process_confirmed_matches(confirmed_matches, current_excel_df)
-                if updated_count > 0:
-                    st.success(f"✅ Successfully updated {updated_count} records!")
-                    time.sleep(2)
-                    st.rerun()
+            
+            if confirmed_matches:
+                current_excel_df = st.session_state.get(f"excel_df_{session_id}")
+                if current_excel_df is not None:
+                    with st.spinner(f"Importing {len(confirmed_matches)} matches..."):
+                        updated_count = process_confirmed_matches(confirmed_matches, current_excel_df)
+                        if updated_count > 0:
+                            st.success(f"✅ Successfully updated {updated_count} records!")
+                            # Don't clear session state - keep the matches for further imports
+                            # Just show success message
+                            time.sleep(2)
+                            st.rerun()
+                else:
+                    st.error("❌ Excel data not available. Please re-upload the file.")
             else:
-                st.error("❌ Excel data not available. Please re-upload the file.")
-        else:
-            st.warning("No matches selected for import. Please confirm matches using the checkboxes.")
+                st.warning("⚠️ No matches selected. Please check the boxes next to the matches you want to import.")
+    with col2:
+        st.info(f"📊 {len(filtered_matches)} matches shown")
     
     st.markdown("---")
     
-    # PAGINATION SETTINGS - FIXED: Initialize match_page if not exists
-    if "match_page" not in st.session_state:
-        st.session_state.match_page = 0
-        
-    MATCHES_PER_PAGE = 10
+    # PAGINATION
+    MATCHES_PER_PAGE = 5
     total_pages = (len(filtered_matches) + MATCHES_PER_PAGE - 1) // MATCHES_PER_PAGE
     
-    # Page navigation at the top
+    # Page navigation
     if total_pages > 1:
         col_prev, col_page, col_next = st.columns([1, 2, 1])
         with col_prev:
-            if st.button("◀ Previous", 
-                        disabled=st.session_state.match_page == 0, 
-                        key=f"prev_page_{st.session_state.match_page}"):
-                st.session_state.match_page = max(0, st.session_state.match_page - 1)
+            prev_key = f"prev_{session_id}"
+            if st.button("◀ Previous", disabled=st.session_state[page_key] == 0, key=prev_key):
+                st.session_state[page_key] = max(0, st.session_state[page_key] - 1)
                 st.rerun()
         with col_page:
-            st.write(f"**Page {st.session_state.match_page + 1} of {total_pages}**")
+            st.write(f"**Page {st.session_state[page_key] + 1} of {total_pages}**")
         with col_next:
-            if st.button("Next ▶", 
-                        disabled=st.session_state.match_page >= total_pages - 1, 
-                        key=f"next_page_{st.session_state.match_page}"):
-                st.session_state.match_page = min(total_pages - 1, st.session_state.match_page + 1)
+            next_key = f"next_{session_id}"
+            if st.button("Next ▶", disabled=st.session_state[page_key] >= total_pages - 1, key=next_key):
+                st.session_state[page_key] = min(total_pages - 1, st.session_state[page_key] + 1)
                 st.rerun()
     
     # Calculate current page slice
-    start_idx = st.session_state.match_page * MATCHES_PER_PAGE
+    start_idx = st.session_state[page_key] * MATCHES_PER_PAGE
     end_idx = min(start_idx + MATCHES_PER_PAGE, len(filtered_matches))
     current_page_matches = filtered_matches[start_idx:end_idx]
-    
-    st.write(f"**Showing {len(filtered_matches)} filtered matches ({start_idx + 1}-{end_idx})**")
     
     # Display current page matches
     for i, match in enumerate(current_page_matches):
         global_index = start_idx + i
+        match_id = f"match_{global_index}_{match['db_record_id']}_{session_id}"
         
-        with st.expander(f"{'🟢' if match['confidence'] == 'exact_match' else '🟡' if match['confidence'] == 'strong_match' else '🟠'} Match {global_index + 1} | Record ID: {match['db_record_id']}", expanded=True):
+        # Get confirmations dictionary
+        confirmations = st.session_state[confirmations_key]
+        
+        # Initialize confirmation state if not exists
+        if match_id not in confirmations:
+            confirmations[match_id] = match['confidence'] == 'exact_match'
+            st.session_state[confirmations_key] = confirmations
+        
+        with st.expander(
+            f"{'🟢' if match['confidence'] == 'exact_match' else '🟡' if match['confidence'] == 'strong_match' else '🟠'} "
+            f"Match {global_index + 1} | Record ID: {match['db_record_id']} | "
+            f"{match['excel_study'][:50]}...", 
+            expanded=True
+        ):
+            col1, col2 = st.columns([4, 1])
             
-            # Imported Study Title
-            st.markdown("#### 📥 Imported Study Title")
-            st.text_area(
-                "Complete title from Excel import:",
-                value=match['excel_study'],
-                height=80,
-                key=f"imported_study_{global_index}",
-                disabled=True
-            )
-            
-            # Database Study Reference with highlighted match
-            st.markdown("#### 🗄️ Database Study Reference")
-            
-            paragraph = match['matching_paragraph']
-            study = match['excel_study']
-            study_normalized = match.get('excel_study_normalized', ' '.join(study.replace('\n', ' ').split()))
-            paragraph_lower = paragraph.lower()
-            study_lower = study_normalized.lower()
-
-            if study_lower in paragraph_lower:
-                # Find the actual case version in the paragraph for highlighting
-                start_idx_text = paragraph_lower.index(study_lower)
-                end_idx_text = start_idx_text + len(study_normalized)
+            with col1:
+                # Study title
+                st.markdown("**📥 Imported Study Title:**")
+                st.info(match['excel_study'])
                 
-                # Create highlighted text with the match in bold (using original case from paragraph)
-                highlighted_paragraph = (
-                    paragraph[:start_idx_text] +
-                    "**" + paragraph[start_idx_text:end_idx_text] + "**" +
-                    paragraph[end_idx_text:]
-                )
+                # Database content
+                st.markdown("**🗄️ Database Record Content:**")
+                paragraph = match['matching_paragraph']
                 
-                st.markdown(highlighted_paragraph)
+                # Try to highlight the match
+                study_normalized = match.get('excel_study_normalized', match['excel_study'])
+                study_lower = study_normalized.lower()
+                paragraph_lower = paragraph.lower()
                 
-                # Match confirmation
-                if match['confidence'] == 'exact_match':
-                    st.success(f"✅ **Exact match found!** (Record ID: {match['db_record_id']})")
-                elif match['confidence'] == 'strong_match':
-                    st.info(f"🟡 **Strong match found** (Record ID: {match['db_record_id']})")
+                if study_lower in paragraph_lower:
+                    start = paragraph_lower.index(study_lower)
+                    end = start + len(study_normalized)
+                    highlighted = (
+                        paragraph[:start] + 
+                        "**" + paragraph[start:end] + "**" + 
+                        paragraph[end:]
+                    )
+                    st.markdown(highlighted)
                 else:
-                    st.info(f"🟠 **Good match found** (Record ID: {match['db_record_id']})")
+                    st.text_area("", value=paragraph, height=150, key=f"para_{match_id}", disabled=True)
                 
-            else:
-                # Show plain paragraph if no exact match found
-                st.text_area(
-                    "Database reference:",
-                    value=paragraph,
-                    height=200,
-                    key=f"database_paragraph_{global_index}",
-                    disabled=True
+                # Match metadata
+                col_meta1, col_meta2 = st.columns(2)
+                with col_meta1:
+                    st.write(f"**Determinant:** {match['criteria']}")
+                    st.write(f"**Energy Output:** {match['energy_method']}")
+                with col_meta2:
+                    st.write(f"**Direction:** {match['direction']}")
+                    st.write(f"**Confidence:** {match['confidence']}")
+            
+            with col2:
+                # Checkbox for confirmation
+                confirmed = st.checkbox(
+                    "✅ Import this match",
+                    value=confirmations.get(match_id, False),
+                    key=f"chk_{match_id}"
                 )
-                st.error(f"❌ **Study title not found in paragraph!** (Record ID: {match['db_record_id']})")
+                # Update session state
+                if confirmed != confirmations.get(match_id, False):
+                    confirmations[match_id] = confirmed
+                    st.session_state[confirmations_key] = confirmations
                 
-            # SIMPLE CONFIRMATION
-            st.markdown("---")
-            confirm_key = f"match_confirm_{global_index}"
-            default_value = match['confidence'] == 'exact_match'  # Auto-confirm exact matches
-            
-            col_confirm1, col_confirm2 = st.columns([3, 1])
-            
-            with col_confirm1:
-                if select_all:
-                    st.session_state[confirm_key] = True
-                    st.checkbox("**Confirm this match for import**", value=True, key=confirm_key, disabled=True)
-                else:
-                    if confirm_key not in st.session_state:
-                        st.session_state[confirm_key] = default_value
-                    st.checkbox("**Confirm this match for import**", value=st.session_state[confirm_key], key=confirm_key)
-            
-            with col_confirm2:
-                confidence_badge = {
-                    'exact_match': "🟢 Exact Match",
-                    'strong_match': "🟡 Strong Match",
-                    'good_match': "🟠 Good Match"
+                # Show confidence badge
+                confidence_colors = {
+                    'exact_match': '🟢',
+                    'strong_match': '🟡',
+                    'good_match': '🟠'
                 }
-                st.info(confidence_badge.get(match['confidence'], "Unknown"))
-            
-            if st.session_state[confirm_key]:
-                confirmed_matches.append(match)
-    
-    # Bottom navigation
-    if total_pages > 1:
+                st.markdown(f"**{confidence_colors.get(match['confidence'], '⚪')} {match['confidence']}**")
+        
         st.markdown("---")
-        col_prev_bottom, col_page_bottom, col_next_bottom = st.columns([1, 2, 1])
-        with col_prev_bottom:
-            if st.button("◀ Previous Page", 
-                        disabled=st.session_state.match_page == 0, 
-                        key=f"prev_page_bottom_{st.session_state.match_page}"):
-                st.session_state.match_page = max(0, st.session_state.match_page - 1)
-                st.rerun()
-        with col_page_bottom:
-            st.write(f"**Page {st.session_state.match_page + 1} of {total_pages}**")
-        with col_next_bottom:
-            if st.button("Next Page ▶", 
-                        disabled=st.session_state.match_page >= total_pages - 1, 
-                        key=f"next_page_bottom_{st.session_state.match_page}"):
-                st.session_state.match_page = min(total_pages - 1, st.session_state.match_page + 1)
-                st.rerun()
     
-    # Additional import button at the bottom
+    # Bottom import button for long lists
     if len(filtered_matches) > MATCHES_PER_PAGE:
         st.markdown("---")
-        if confirmed_matches and st.button("🚀 Import Data for Selected Matches", type="primary", key="import_bottom_button"):
-            current_excel_df = st.session_state.get('current_excel_df')
-            if current_excel_df is not None:
-                updated_count = process_confirmed_matches(confirmed_matches, current_excel_df)
-                if updated_count > 0:
-                    st.success(f"✅ Successfully updated {updated_count} records!")
-                    time.sleep(2)
-                    st.rerun()
+        import_bottom_key = f"import_bottom_{session_id}"
+        if st.button("🚀 IMPORT SELECTED MATCHES", type="primary", use_container_width=True, key=import_bottom_key):
+            # Collect all confirmed matches
+            confirmed_matches = []
+            confirmations = st.session_state[confirmations_key]
+            
+            for i, match in enumerate(filtered_matches):
+                match_id = f"match_{i}_{match['db_record_id']}_{session_id}"
+                if confirmations.get(match_id, False):
+                    confirmed_matches.append(match)
+            
+            if confirmed_matches:
+                current_excel_df = st.session_state.get(f"excel_df_{session_id}")
+                if current_excel_df is not None:
+                    with st.spinner(f"Importing {len(confirmed_matches)} matches..."):
+                        updated_count = process_confirmed_matches(confirmed_matches, current_excel_df)
+                        if updated_count > 0:
+                            st.success(f"✅ Successfully updated {updated_count} records!")
+                            # Don't clear session state
+                            time.sleep(2)
+                            st.rerun()
+                else:
+                    st.error("❌ Excel data not available. Please re-upload the file.")
             else:
-                st.error("❌ Excel data not available. Please re-upload the file.")
-
-    # UNMATCHED STUDIES SECTION - NEW AND IMPROVED
+                st.warning("⚠️ No matches selected. Please check the boxes next to the matches you want to import.")
+    
+    # UNMATCHED STUDIES SECTION
     if unmatched_studies:
         st.markdown("---")
         st.subheader("❌ Unmatched Studies")
         st.warning(f"**{len(unmatched_studies)} studies couldn't be automatically matched**")
         
-        # Analysis of unmatched studies
-        with st.expander("📊 Unmatched Studies Analysis", expanded=False):
-            # Basic statistics
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                avg_length = sum(len(study['study_name']) for study in unmatched_studies) / len(unmatched_studies)
-                st.metric("Average Title Length", f"{avg_length:.1f} chars")
-            with col2:
-                shortest = min(len(study['study_name']) for study in unmatched_studies)
-                st.metric("Shortest Title", f"{shortest} chars")
-            with col3:
-                longest = max(len(study['study_name']) for study in unmatched_studies)
-                st.metric("Longest Title", f"{longest} chars")
+        with st.expander("📊 View Unmatched Studies", expanded=False):
+            # Search filter
+            search_unmatched_key = f"search_unmatched_{session_id}"
+            search_unmatched = st.text_input("🔍 Search unmatched studies", placeholder="Enter keyword...", key=search_unmatched_key)
             
-            # Common issues
-            st.write("**Common Issues:**")
-            very_short = len([s for s in unmatched_studies if len(s['study_name']) < 20])
-            very_long = len([s for s in unmatched_studies if len(s['study_name']) > 200])
-            all_upper = len([s for s in unmatched_studies if s['study_name'].isupper()])
+            # Filter studies
+            filtered_unmatched = unmatched_studies
+            if search_unmatched:
+                filtered_unmatched = [s for s in filtered_unmatched if search_unmatched.lower() in s['study_name'].lower()]
             
-            if very_short > 0:
-                st.write(f"• Very short titles (<20 chars): {very_short}")
-            if very_long > 0:
-                st.write(f"• Very long titles (>200 chars): {very_long}")
-            if all_upper > 0:
-                st.write(f"• All uppercase titles: {all_upper}")
-        
-        # Display unmatched studies with detailed inspection
-        st.write("**Inspect Unmatched Studies:**")
-        
-        # Search and filter for unmatched studies
-        col_search, col_filter = st.columns(2)
-        with col_search:
-            unmatched_search = st.text_input("Search unmatched studies", placeholder="Enter keyword...", key="unmatched_search")
-        
-        with col_filter:
-            unmatched_filter = st.selectbox("Filter by length", 
-                                          ["All", "Very Short (<20 chars)", "Short (20-50)", "Medium (50-100)", "Long (100-200)", "Very Long (>200)"],
-                                          key="unmatched_filter")
-        
-        # Filter unmatched studies
-        filtered_unmatched = unmatched_studies
-        
-        if unmatched_search:
-            filtered_unmatched = [s for s in filtered_unmatched if unmatched_search.lower() in s['study_name'].lower()]
-        
-        if unmatched_filter != "All":
-            if unmatched_filter == "Very Short (<20 chars)":
-                filtered_unmatched = [s for s in filtered_unmatched if len(s['study_name']) < 20]
-            elif unmatched_filter == "Short (20-50)":
-                filtered_unmatched = [s for s in filtered_unmatched if 20 <= len(s['study_name']) < 50]
-            elif unmatched_filter == "Medium (50-100)":
-                filtered_unmatched = [s for s in filtered_unmatched if 50 <= len(s['study_name']) < 100]
-            elif unmatched_filter == "Long (100-200)":
-                filtered_unmatched = [s for s in filtered_unmatched if 100 <= len(s['study_name']) < 200]
-            elif unmatched_filter == "Very Long (>200)":
-                filtered_unmatched = [s for s in filtered_unmatched if len(s['study_name']) >= 200]
-        
-        st.write(f"**Showing {len(filtered_unmatched)} of {len(unmatched_studies)} unmatched studies**")
-        
-        # Display each unmatched study with analysis
-        for i, unmatched in enumerate(filtered_unmatched):
-            with st.expander(f"❌ {unmatched['study_name'][:80]}{'...' if len(unmatched['study_name']) > 80 else ''}", expanded=False):
-                col1, col2 = st.columns([3, 1])
-                
-                with col1:
-                    st.write(f"**Study Title:** {unmatched['study_name']}")
-                    st.write(f"**Length:** {len(unmatched['study_name'])} characters")
-                    st.write(f"**Normalized:** {unmatched.get('normalized_name', 'N/A')}")
-                    st.write(f"**Reason:** {unmatched.get('reason', 'No match found')}")
-                    
-                    # Quick analysis
-                    st.write("**Quick Analysis:**")
-                    if len(unmatched['study_name']) < 20:
-                        st.write("• 🔴 Title is very short - may need manual matching")
-                    if len(unmatched['study_name']) > 200:
-                        st.write("• 🔴 Title is very long - try matching with first 100 characters")
-                    if unmatched['study_name'].isupper():
-                        st.write("• 🔴 Title is all uppercase - try converting to normal case")
-                    
-                    # Show first 100 chars of normalized version for manual search
-                    st.write("**Try searching for this in database:**")
-                    search_suggestion = unmatched.get('normalized_name', unmatched['study_name'])[:100]
-                    st.code(search_suggestion)
-                
-                with col2:
-                    # Quick actions
-                    if st.button("🔍 Search DB", key=f"search_unmatched_{i}"):
-                        # Quick database search for similar content
-                        similar_results = quick_database_search_unmatched(conn, unmatched['study_name'])
-                        if similar_results:
-                            st.success(f"Found {len(similar_results)} potential matches")
-                            for sim in similar_results[:3]:
-                                st.write(f"- ID {sim['id']}: {sim['paragraph'][:80]}...")
-                        else:
-                            st.error("No similar records found")
-                    
-                    if st.button("📝 Copy", key=f"copy_unmatched_{i}"):
-                        st.code(unmatched['study_name'])
-        
-        # Export unmatched studies
-        st.markdown("---")
-        if st.button("📤 Export Unmatched Studies to CSV", key="export_unmatched_button"):
-            export_unmatched_studies(filtered_unmatched)
+            # Display unmatched studies
+            for i, unmatched in enumerate(filtered_unmatched[:20]):
+                st.write(f"**{i+1}.** {unmatched['study_name']}")
+                search_db_key = f"search_db_{i}_{session_id}"
+                if st.button(f"🔍 Search DB for this study", key=search_db_key):
+                    similar_results = quick_database_search_unmatched(conn, unmatched['study_name'])
+                    if similar_results:
+                        st.success(f"Found {len(similar_results)} potential matches")
+                        for sim in similar_results[:3]:
+                            st.write(f"- ID {sim['id']}: {sim['paragraph'][:100]}...")
+                    else:
+                        st.error("No similar records found")
+            
+            if len(filtered_unmatched) > 20:
+                st.write(f"... and {len(filtered_unmatched) - 20} more")
+            
+            # Export option
+            export_key = f"export_unmatched_{session_id}"
+            if st.button("📤 Export Unmatched Studies", key=export_key):
+                export_unmatched_studies(filtered_unmatched)
 
 def quick_database_search_unmatched(conn, study_name):
     """Quick search for similar content in database for unmatched studies"""
@@ -2425,49 +2930,6 @@ def quick_database_search(conn, study_name):
             seen_ids.add(id)
     
     return unique_results
-    
-def extract_climate_data(climate_text):
-    """
-    Extract dominant climate code from climate text
-    Format examples:
-    - "United Arab Emirates (UAE), Downtown Abu Dhabi | BWh (Hot desert)" -> "BWh"
-    - "USA | Cfa (Humid subtropical) dominant, also Dfa, Dfb, BWh" -> "Cfa"
-    - "Cfa (Humid subtropical)" -> "Cfa"
-    - "Cfa, Dfa" -> "Cfa"
-    """
-    if not climate_text or pd.isna(climate_text) or str(climate_text).strip() == '':
-        return None, []
-    
-    climate_text = str(climate_text).strip()
-    
-    # Define valid Köppen climate codes we want to extract
-    valid_climate_codes = [
-        'Af', 'Am', 'Aw', 'BWh', 'BWk', 'BSh', 'BSk', 
-        'Cfa', 'Cfb', 'Cfc', 'Csa', 'Csb', 
-        'Dfa', 'Dfb', 'Dfc', 'Dfd', 'ET', 'EF'
-    ]
-    
-    # Method 1: Extract after "| " (most common format)
-    if '| ' in climate_text:
-        # Get the part after the pipe
-        after_pipe = climate_text.split('| ')[1]
-        # Look for the first valid climate code
-        for code in valid_climate_codes:
-            if code in after_pipe:
-                dominant_climate = code
-                # Also extract any other valid codes for multi-climate
-                multi_climates = [c for c in valid_climate_codes if c in after_pipe]
-                return dominant_climate, multi_climates
-    
-    # Method 2: Look for any valid climate codes in the text
-    found_codes = [code for code in valid_climate_codes if code in climate_text]
-    if found_codes:
-        # Use the first found code as dominant
-        dominant_climate = found_codes[0]
-        return dominant_climate, found_codes
-    
-    # Method 3: If no valid codes found, return the original text as dominant
-    return climate_text, [climate_text]
 
 
 def show_length_distribution(unmatched_studies):
@@ -2592,7 +3054,42 @@ def process_confirmed_matches(confirmed_matches, excel_df):
                 elif 'sample' in col_lower or 'n' == col_lower:
                     sample_size = str(excel_match[col]) if pd.notna(excel_match[col]) else ''
             
-            # Extract climate code using new function
+            # Extract climate code
+            climate_code = extract_just_climate_code(climate_text)
+            
+            # Update the database record with all fields
+            cursor.execute('''
+                UPDATE energy_data 
+                SET location = ?, 
+                    climate = ?, 
+                    scale = ?,
+                    building_use = ?,
+                    approach = ?,
+                    sample_size = ?
+                WHERE id = ?
+            ''', (
+                location if location else None,
+                climate_code if climate_code else None,
+                scale if scale else None,
+                building_use if building_use else None,
+                approach if approach else None,
+                sample_size if sample_size else None,
+                record_id
+            ))
+            
+            updated_count += 1
+            
+        else:
+            not_found_in_excel.append(excel_study)
+    
+    conn.commit()
+    
+    if not_found_in_excel:
+        st.warning(f"⚠️ {len(not_found_in_excel)} studies not found in Excel file")
+    
+    return updated_count
+
+
 def extract_just_climate_code(climate_text):
     """
     Extract ONLY the climate code from climate text, preserving ORIGINAL case
@@ -2615,7 +3112,7 @@ def extract_just_climate_code(climate_text):
         if len(parts) > 1:
             climate_text = parts[1].strip()
     
-    # Now extract just the climate code - preserve original case
+    # Now extract just the climate code
     import re
     
     # Look for patterns like "Csa (Mediterranean)" or just "Csa"
@@ -2659,42 +3156,6 @@ def add_new_columns_to_database():
 # Run this function once to add the new columns
 #add_new_columns_to_database()
 
-def extract_climate_code(climate_text):
-    """
-    Extract just the 3-letter climate code from climate text
-    Format examples:
-    - "Ilam, Iran. | Csa (Mediterranean)" -> "Csa"
-    - "Beijing, china | Dwa (Monsoon-influenced hot-summer humid continental)" -> "Dwa"
-    - "Csa (Mediterranean)" -> "Csa"
-    - "Csa" -> "Csa"
-    """
-    if not climate_text or pd.isna(climate_text) or str(climate_text).strip() == '':
-        return None
-    
-    climate_text = str(climate_text).strip()
-    
-    # If there's a pipe "|" in the text, take the part after it
-    if '|' in climate_text:
-        # Split by pipe and take the second part
-        parts = climate_text.split('|')
-        if len(parts) > 1:
-            climate_text = parts[1].strip()
-    
-    # Now extract just the climate code (first word/letters before space or parenthesis)
-    # Climate codes are typically 3 letters like Csa, Dwa, etc.
-    import re
-    
-    # Look for patterns like "Csa (Mediterranean)" or just "Csa"
-    # Match 2-3 uppercase letters possibly followed by lowercase letters
-    match = re.search(r'([A-Z][A-Za-z]{1,2})', climate_text)
-    
-    if match:
-        climate_code = match.group(1)
-        # Ensure it's uppercase (in case there are lowercase letters)
-        climate_code = climate_code.upper()
-        return climate_code
-    
-    return climate_text  # Return original if no pattern found
 
 def extract_just_climate_code(climate_text):
     """
@@ -2734,237 +3195,97 @@ def extract_just_climate_code(climate_text):
     return None
 
 def import_location_climate_data_unique():
+    """Import climate, location, scale, building use, approach and sample size data - SIMPLIFIED"""
     global conn
-    st.subheader("Import Location, Climate & Scale Data")
+    st.subheader("Import Climate, Location, Scale, Building use, Approach and Sample size data")
     
     # Add reset button section at the top
     col1, col2 = st.columns(2)
-    
     with col1:
         st.warning("⚠️ **Reset Options**")
     with col2:
-        if st.button("🗑️ Clear All, Climate, Location and Scale Data", key="clear_location_data_btn", use_container_width=True):
+        if st.button("🗑️ Clear Data", key="clear_location_data_btn", use_container_width=True):
             reset_location_climate_scale_data()
     
     st.markdown("---")
     
-    # File upload with UNIQUE key
-    uploaded_file = st.file_uploader("Upload Excel file with location/climate data", 
+    # File upload
+    uploaded_file = st.file_uploader("Upload Excel file with study data", 
                                    type=["xlsx", "csv", "ods"],
                                    key="location_climate_import_unique")
     
     if uploaded_file is not None:
         try:
-            # NEW: Enable matching feature
-            use_matching = st.checkbox("🔍 Enable Automatic Study Matching", value=True, 
-                                     help="Automatically match Excel studies with database records")
+            # Read the file
+            df = pd.read_excel(uploaded_file, sheet_name=0)
             
-            if use_matching:
-                # Store the uploaded file in session state so it's available for processing
-                st.session_state.uploaded_excel_file = uploaded_file
-                
-                # Use the enhanced matching import
-                matched, unmatched = admin_import_and_match_studies(uploaded_file)
-
-                # Read the Excel file and store it in session state
-                uploaded_file.seek(0)  # Reset file pointer
-                excel_df = pd.read_excel(uploaded_file, sheet_name=0)
-                st.session_state.current_excel_df = excel_df
-
-                display_admin_matching_review(matched, unmatched, excel_df)
-
+            # Show preview
+            st.write("**Preview of data to import:**")
+            st.dataframe(df.head(10))
+            
+            # Show column names
+            st.write(f"**Columns found in file:** {list(df.columns)}")
+            
+            # AUTOMATICALLY DETECT STUDY COLUMN
+            study_column = None
+            for col in df.columns:
+                col_lower = str(col).lower()
+                if any(keyword in col_lower for keyword in ['study', 'title', 'paper', 'reference', 'citation']):
+                    study_column = col
+                    break
+            
+            if study_column is None:
+                # If no obvious study column, use first column
+                study_column = df.columns[0]
+                st.warning(f"⚠️ No obvious study title column found. Using first column: '{study_column}'")
             else:
-                # Use the original import logic
-                df = pd.read_excel(uploaded_file, sheet_name=0)
-                
-                # Clean column names and data
-                df.columns = [str(col).strip() for col in df.columns]
-                
-                # FLEXIBLE COLUMN MAPPING - Handle different column names
-                column_mapping = {}
-                
-                # Map expected column names with flexibility
-                possible_study_cols = ['Study', 'study', 'Title', 'title', 'Paper', 'paper']
-                possible_location_cols = ['Location', 'location', 'Site', 'site', 'Region', 'region']
-                possible_climate_cols = ['Climate', 'climate', 'Climate Zone', 'climate_zone']
-                possible_scale_cols = ['Scale (Coverage)', 'Scale', 'scale', 'Scale. (Neighbourhood (rural, urban), Regional, National and State,)', 'Scale (coverage)']
-                possible_building_use_cols = ['Building Use', 'building_use', 'Building_Use', 'Building Type', 'building_type']
-                possible_approach_cols = ['Approach', 'approach', 'Methodology', 'methodology', 'Method', 'method']
-                possible_sample_size_cols = ['Sample Size', 'sample_size', 'Sample_Size', 'Sample', 'sample', 'N']
-                
-                # Find matching columns
-                for col in df.columns:
-                    col_clean = str(col).strip()
-                    col_lower = col_clean.lower()
+                st.success(f"✅ Automatically detected study column: '{study_column}'")
+            
+            st.markdown("---")
+            
+            # SIMPLE IMPORT BUTTON
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                if st.button("🔍 FIND AND MATCH STUDIES", type="primary", use_container_width=True, key="start_matching_button"):
                     
-                    if any(study_col in col_lower for study_col in ['study', 'title', 'paper']):
-                        column_mapping[col] = 'study'
-                    elif any(loc_col in col_lower for loc_col in ['location', 'site', 'region']):
-                        column_mapping[col] = 'location'
-                    elif any(climate_col in col_lower for climate_col in ['climate', 'climate zone']):
-                        column_mapping[col] = 'climate'
-                    elif any(scale_col in col_lower for scale_col in ['scale']):
-                        column_mapping[col] = 'scale'
-                    elif any(building_use_col in col_lower for building_use_col in ['building use', 'building_type']):
-                        column_mapping[col] = 'building_use'
-                    elif any(approach_col in col_lower for approach_col in ['approach', 'methodology', 'method']):
-                        column_mapping[col] = 'approach'
-                    elif any(sample_size_col in col_lower for sample_size_col in ['sample size', 'sample', 'n']):
-                        column_mapping[col] = 'sample_size'
-                
-                # Check if we found a study column
-                if not any('study' in col.lower() for col in column_mapping.values()):
-                    st.error("No study column found in the uploaded file. Please ensure your Excel file has a column for study names.")
-                    st.write("Available columns:", list(df.columns))
-                    return
-                
-                # Rename columns
-                df = df.rename(columns=column_mapping)
-                
-                # Display preview
-                st.write("**Preview of data to import:**")
-                st.dataframe(df.head(10))
-                
-                # Show statistics
-                st.write(f"**Total records in file:** {len(df)}")
-                st.write(f"**Columns found:** {list(column_mapping.values())}")
-                
-                # Debug: Show what columns are actually being mapped
-                st.write("**Column mapping details:**")
-                for original, mapped in column_mapping.items():
-                    st.write(f"  - '{original}' → '{mapped}'")
-                
-                # Show sample of extracted climate codes
-                if 'climate' in df.columns:
-                    sample_climates = df['climate'].head(5).apply(extract_just_climate_code)
-                    st.write("**Sample climate code extraction (first 5):**")
-                    for i, (original, extracted) in enumerate(zip(df['climate'].head(5), sample_climates)):
-                        st.write(f"  {i+1}. '{original}' → '{extracted}'")
-                
-                # Import button with unique key
-                if st.button("Import Data to Database", type="primary", key="import_button_unique"):
-                    import_progress = st.progress(0)
-                    status_text = st.empty()
-                    
-                    cursor = conn.cursor()
-                    
-                    updated_count = 0
-                    not_found_studies = []
-                    
-                    for index, row in df.iterrows():
-                        # Update progress
-                        progress = (index + 1) / len(df)
-                        import_progress.progress(progress)
-                        status_text.text(f"Processing {index + 1}/{len(df)}: {row['study'][:50]}...")
+                    with st.spinner("Matching studies against database..."):
+                        # Clear any existing import session
+                        if "current_import_session" in st.session_state:
+                            old_session = st.session_state.current_import_session
+                            keys_to_delete = [k for k in st.session_state.keys() if old_session in k]
+                            for key in keys_to_delete:
+                                del st.session_state[key]
                         
-                        # Clean study name for matching (remove extra spaces, etc.)
-                        study_name = str(row['study']).strip()
+                        # Create new session ID
+                        session_id = f"import_{int(time.time())}"
+                        st.session_state.current_import_session = session_id
+                        st.session_state[f"excel_df_{session_id}"] = df
+                        st.session_state[f"study_column_{session_id}"] = study_column
                         
-                        # Try to find matching record in database
-                        cursor.execute('''
-                            SELECT id, paragraph FROM energy_data 
-                            WHERE paragraph LIKE ? 
-                            OR paragraph LIKE ?
-                            LIMIT 1
-                        ''', (f'%{study_name}%', f'%{study_name[:100]}%'))
+                        # Perform matching
+                        matched_records, unmatched_studies = perform_study_matching(df, study_column)
                         
-                        result = cursor.fetchone()
+                        # Store results
+                        st.session_state[f"matched_records_{session_id}"] = matched_records
+                        st.session_state[f"unmatched_studies_{session_id}"] = unmatched_studies
                         
-                        if result:
-                            record_id, paragraph = result
-                            
-                            # Get location from Location column (not from climate text)
-                            location_value = str(row.get('location', '')).strip()
-                            
-                            # Extract JUST the climate code from climate text
-                            climate_text = str(row.get('climate', '')).strip()
-                            climate_code = extract_just_climate_code(climate_text)
-                            
-                            # Get scale value
-                            scale_value = str(row.get('scale', '')).strip()
-                            
-                            # Debug info for first few records
-                            if index < 3:
-                                st.sidebar.write(f"**Record {record_id}:**")
-                                st.sidebar.write(f"  Study: '{study_name[:30]}...'")
-                                st.sidebar.write(f"  Location column value: '{location_value}'")
-                                st.sidebar.write(f"  Climate column text: '{climate_text}'")
-                                st.sidebar.write(f"  Extracted climate code: '{climate_code}'")
-                                st.sidebar.write(f"  Scale value: '{scale_value}'")
-                                st.sidebar.write("---")
-                            
-                            # Update the record with all available data
-                            cursor.execute('''
-                                UPDATE energy_data 
-                                SET location = ?, 
-                                    climate = ?, 
-                                    scale = ?,
-                                    building_use = ?,
-                                    approach = ?,
-                                    sample_size = ?
-                                WHERE id = ?
-                            ''', (
-                                location_value,  # From Location column
-                                climate_code if climate_code else '',  # Proper Köppen format
-                                scale_value,
-                                str(row.get('building_use', '')).strip(),
-                                str(row.get('approach', '')).strip(),
-                                str(row.get('sample_size', '')).strip(),
-                                record_id
-                            ))
-                            
-                            updated_count += 1
-                        else:
-                            not_found_studies.append(study_name)
-                    
-                    conn.commit()
-                    import_progress.empty()
-                    status_text.empty()
-                    
-                    # Show results
-                    st.success(f"✅ Import completed!")
-                    st.write(f"**Records updated:** {updated_count}")
-                    
-                    # Show summary of what was imported
-                    col_summary1, col_summary2, col_summary3, col_summary4 = st.columns(4)
-                    with col_summary1:
-                        location_count = df['location'].notna().sum() if 'location' in df.columns else 0
-                        st.metric("Location", location_count)
-                    with col_summary2:
-                        climate_count = df['climate'].notna().sum() if 'climate' in df.columns else 0
-                        st.metric("Climate", climate_count)
-                    with col_summary3:
-                        scale_count = df['scale'].notna().sum() if 'scale' in df.columns else 0
-                        st.metric("Scale", scale_count)
-                    with col_summary4:
-                        building_use_count = df['building_use'].notna().sum() if 'building_use' in df.columns else 0
-                        st.metric("Building Use", building_use_count)
-                    
-                    # Show location import summary
-                    if 'location' in df.columns:
-                        unique_locations = df['location'].dropna().unique()
-                        st.write(f"**Unique locations imported:** {len(unique_locations)}")
-                        with st.expander("View sample locations"):
-                            for loc in unique_locations[:10]:
-                                st.write(f"- {loc}")
-                    
-                    if not_found_studies:
-                        st.warning(f"**{len(not_found_studies)} studies not found in database:**")
-                        with st.expander("Show unmatched studies"):
-                            for study in not_found_studies[:20]:  # Show first 20
-                                st.write(f"- {study}")
-                            if len(not_found_studies) > 20:
-                                st.write(f"... and {len(not_found_studies) - 20} more")
-                    
-                    # Refresh to show updated data
-                    st.rerun()
+                        st.success(f"✅ Found {len(matched_records)} matches and {len(unmatched_studies)} unmatched studies")
+                        st.rerun()
+            
+            # DISPLAY RESULTS
+            current_session = st.session_state.get("current_import_session")
+            if current_session:
+                matched_records = st.session_state.get(f"matched_records_{current_session}")
+                unmatched_studies = st.session_state.get(f"unmatched_studies_{current_session}")
+                excel_df = st.session_state.get(f"excel_df_{current_session}")
                 
+                if matched_records is not None and unmatched_studies is not None:
+                    display_admin_matching_review_fixed(matched_records, unmatched_studies, excel_df, current_session)
+                    
         except Exception as e:
             st.error(f"Error reading Excel file: {str(e)}")
             import traceback
             st.error(f"Detailed error: {traceback.format_exc()}")
-            st.write("Please check the file format and ensure it contains the correct sheet name.")
-      
 
 def reset_location_climate_scale_data():
     """Clear all imported data and reset to defaults"""
@@ -3392,35 +3713,15 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False, cle
     return saved
 
 def manage_scale_climate_data():
-    if "admin_editing_record_id" not in st.session_state:
-        st.session_state.admin_editing_record_id = None
+    """Edit Records - Dropdown directly selects record to edit"""
     global conn
+    
     st.subheader("Edit Records - Full Record Management")
+    
+    # ============= FILTER UI FIRST - NO DATA LOADING YET =============
     cursor = conn.cursor()
     
-    # Get all column names to make it dynamic
-    cursor.execute("PRAGMA table_info(energy_data)")
-    columns_info = cursor.fetchall()
-    column_names = [col[1] for col in columns_info]
-    
-    # Get dynamic options from database with error handling
-    try:
-        scale_options = query_scale_options_with_counts(conn)
-        climate_options = query_climate_options_with_counts(conn)
-    
-    except Exception as e:
-        st.warning("Some filter data is not available yet. Please import location and climate data first.")
-        scale_options = []
-        climate_options = []
-    
-    # If no imported data yet, provide some defaults
-    if not scale_options:
-        scale_options = ["Not imported"]
-    
-    if not climate_options:
-        climate_options = ["Not Imported"]
-    
-    # Get counts exactly like the main app - EXCLUDE EMPTY/ZERO RECORDS
+    # Get ONLY counts for dropdowns - this is fast
     cursor.execute('''
         SELECT criteria, COUNT(paragraph) as count
         FROM energy_data
@@ -3432,602 +3733,212 @@ def manage_scale_climate_data():
           AND LENGTH(TRIM(paragraph)) > 0
           AND status NOT IN ("pending", "rejected")
         GROUP BY criteria
+        LIMIT 100
     ''')
     criteria_counts = dict(cursor.fetchall())
     
-    cursor.execute('''
-        SELECT energy_method, COUNT(paragraph) as count
-        FROM energy_data
-        WHERE paragraph IS NOT NULL 
-          AND paragraph != '' 
-          AND paragraph != '0' 
-          AND paragraph != '0.0'
-          AND paragraph != 'None'
-          AND LENGTH(TRIM(paragraph)) > 0
-          AND status NOT IN ("pending", "rejected")
-        GROUP BY energy_method
-    ''')
-    method_counts = dict(cursor.fetchall())
+    # Initialize session state for filters
+    if "admin_filter_criteria" not in st.session_state:
+        st.session_state.admin_filter_criteria = "All determinants"
+    if "admin_filter_method" not in st.session_state:
+        st.session_state.admin_filter_method = None
+    if "admin_filter_direction" not in st.session_state:
+        st.session_state.admin_filter_direction = None
+    if "admin_search_triggered" not in st.session_state:
+        st.session_state.admin_search_triggered = False
+    if "admin_selected_edit_id" not in st.session_state:
+        st.session_state.admin_selected_edit_id = None
     
-    # Get all approved records for display - EXCLUDE EMPTY/ZERO RECORDS
-    cursor.execute('''
-        SELECT id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, 
-            building_use, approach, sample_size
-        FROM energy_data 
-        WHERE status NOT IN ("pending", "rejected")
-        AND paragraph IS NOT NULL 
-        AND paragraph != '' 
-        AND paragraph != '0' 
-        AND paragraph != '0.0'
-        AND paragraph != 'None'
-        AND LENGTH(TRIM(paragraph)) > 0
-        ORDER BY criteria, energy_method, id
-    ''')
-    records = cursor.fetchall()
-
-    # Initialize missing data statistics variables
-    awaiting_scale = 0
-    awaiting_climate = 0
-    awaiting_location = 0
-    awaiting_building_use = 0
-    awaiting_approach = 0
-    awaiting_sample_size = 0
-    total_records = len(records)
+    # Step 1: Determinant dropdown
+    criteria_list = ["All determinants"] + [f"{c} [{count}]" for c, count in criteria_counts.items()]
+    selected_criteria = st.selectbox(
+        "Filter by Determinant", 
+        criteria_list,
+        key="admin_edit_criteria_unique"
+    )
     
-    # Calculate statistics upfront
-    for record in records:
-        record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
-        
-        if scale in ["Awaiting data", "Not Specified", "", None] or not scale:
-            awaiting_scale += 1
-        
-        if climate in ["Awaiting data", "Not Specified", "", None] or not climate:
-            awaiting_climate += 1
-        
-        if location in ["", None] or not location:
-            awaiting_location += 1
-        
-        if building_use in ["", None] or not building_use:
-            awaiting_building_use += 1
-        
-        if approach in ["", None] or not approach:
-            awaiting_approach += 1
-        
-        if sample_size in ["", None] or not sample_size:
-            awaiting_sample_size += 1
-
-    # Filter options with proper counts
-    criteria_list = ["All determinants"] + [f"{criteria} [{count}]" for criteria, count in criteria_counts.items()]
-    method_list = ["All outputs"] + [f"{method} [{count}]" for method, count in method_counts.items()]
-    
-    # Initialize all filter variables
-    selected_scales = []
-    selected_climates = []
-    selected_locations = []
-    selected_building_uses = []
-    selected_approaches = []
-    selected_direction = None
-    actual_method = None
-
-    # FILTER LAYOUT - Consistent with main app
-    # Step 1: Determinant dropdown - full width
-    selected_criteria = st.selectbox("Filter by Determinant", criteria_list, key="admin_edit_criteria")
     actual_criteria = selected_criteria.split(" [")[0] if selected_criteria != "All determinants" else None
     
-    # Step 2: Energy Output dropdown - full width (only if determinant is selected)
+    # Step 2: Energy Output dropdown
+    actual_method = None
     if actual_criteria:
-        energy_method_counts = query_energy_method_counts(conn, actual_criteria)
-        method_list = ["All outputs"] + [f"{method} [{count}]" for method, count in energy_method_counts]
+        cursor.execute('''
+            SELECT energy_method, COUNT(paragraph) as count
+            FROM energy_data
+            WHERE criteria = ? 
+              AND paragraph IS NOT NULL 
+              AND paragraph != '' 
+              AND paragraph != '0' 
+              AND paragraph != '0.0'
+              AND paragraph != 'None'
+              AND LENGTH(TRIM(paragraph)) > 0
+              AND status NOT IN ("pending", "rejected")
+            GROUP BY energy_method
+        ''', (actual_criteria,))
+        method_counts = cursor.fetchall()
         
-        selected_method = st.selectbox("Filter by Energy Output", method_list, key="admin_edit_method")
+        method_list = ["All outputs"] + [f"{m} [{c}]" for m, c in method_counts]
+        selected_method = st.selectbox("Filter by Energy Output", method_list, key="admin_edit_method_unique")
         actual_method = selected_method.split(" [")[0] if selected_method != "All outputs" else None
         
-        # Step 3: Direction radio buttons - full width (only if both determinant and method are selected)
+        # Step 3: Direction radio
         if actual_method:
-            # Query function to get the count for each direction
-            def query_direction_counts(conn, selected_criteria, selected_method):
-                cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT direction, COUNT(paragraph) as count
-                    FROM energy_data
-                    WHERE criteria = ? AND energy_method = ? AND paragraph IS NOT NULL AND paragraph != '' AND paragraph != '0' AND paragraph != '0.0' AND status NOT IN ("pending", "rejected")
-                    GROUP BY direction
-                ''', (selected_criteria, selected_method))
-                return dict(cursor.fetchall())
-
-            # Fetch counts for each direction
-            direction_counts = query_direction_counts(conn, actual_criteria, actual_method)
+            cursor.execute('''
+                SELECT direction, COUNT(paragraph) as count
+                FROM energy_data
+                WHERE criteria = ? AND energy_method = ? 
+                  AND paragraph IS NOT NULL 
+                  AND paragraph != '' 
+                  AND paragraph != '0' 
+                  AND paragraph != '0.0'
+                  AND paragraph != 'None'
+                  AND LENGTH(TRIM(paragraph)) > 0
+                  AND status NOT IN ("pending", "rejected")
+                GROUP BY direction
+            ''', (actual_criteria, actual_method))
+            direction_counts = dict(cursor.fetchall())
+            
             increase_count = direction_counts.get("Increase", 0)
             decrease_count = direction_counts.get("Decrease", 0)
-
-            # Display radio buttons with counts
+            
             selected_direction = st.radio(
-                "Please select the direction of the relationship",
+                "Direction",
                 [f"Increase [{increase_count}]", f"Decrease [{decrease_count}]"],
-                index=None,  # No preselection
-                key="admin_direction_radio"
+                index=None,
+                key="admin_direction_radio_unique"
             )
             
-            # Step 4: Additional filters when direction is selected
-            if selected_direction:
-                # First row: Scale, Climate, Location
-                col_scale, col_climate, col_location = st.columns(3)
-                
-                with col_scale:
-                    # Scale filter
-                    if scale_options:
-                        # Get current selections for filtering
-                        current_climate_filter = []
-                        if 'admin_selected_climate' in st.session_state and st.session_state.admin_selected_climate != "All":
-                            climate_code = st.session_state.admin_selected_climate.split(" - ")[0]
-                            climate_code = ''.join([c for c in climate_code if c.isalnum()])
-                            current_climate_filter = [climate_code]
-                        
-                        current_location_filter = []
-                        if 'admin_selected_location' in st.session_state and st.session_state.admin_selected_location != "All":
-                            location_name = st.session_state.admin_selected_location.split(" [")[0]
-                            current_location_filter = [location_name]
-                        
-                        # Get scale options with counts filtered by current selections
-                        scale_options_with_counts = query_scale_options_with_counts(
-                            conn, 
-                            actual_criteria, 
-                            actual_method, 
-                            selected_direction,
-                            current_climate_filter,
-                            current_location_filter
-                        )
-                        
-                        if scale_options_with_counts:
-                            if 'admin_selected_scale' not in st.session_state:
-                                st.session_state.admin_selected_scale = "All"
-                            
-                            scale_options_formatted = ["All"] + [f"{scale} [{count}]" for scale, count in scale_options_with_counts]
-                            
-                            # Find the current index
-                            current_scale = st.session_state.admin_selected_scale
-                            current_index = 0
-                            if current_scale != "All":
-                                if " [" in current_scale:
-                                    current_scale_name = current_scale.split(" [")[0]
-                                else:
-                                    current_scale_name = current_scale
-                                
-                                for i, option in enumerate(scale_options_formatted):
-                                    if option.startswith(current_scale_name + " [") or option == current_scale:
-                                        current_index = i
-                                        break
-                                else:
-                                    st.session_state.admin_selected_scale = "All"
-                                    current_index = 0
-                            
-                            selected_scale = st.selectbox(
-                                "Filter by Scale",
-                                options=scale_options_formatted,
-                                index=current_index,
-                                key="admin_scale_filter"
-                            )
-                            
-                            if selected_scale != st.session_state.admin_selected_scale:
-                                st.session_state.admin_selected_scale = selected_scale
-                                st.rerun()
-                            
-                            if selected_scale != "All":
-                                scale_name = selected_scale.split(" [")[0]
-                                selected_scales = [scale_name]
-                        else:
-                            st.info("No scale data available for current selection")
-                            selected_scales = None
-                    else:
-                        st.info("No scale data available")
-                        selected_scales = None
-
-                with col_climate:
-                    # Climate filter
-                    if climate_options:
-                        # Get current selections for filtering
-                        current_scale_filter = []
-                        if 'admin_selected_scale' in st.session_state and st.session_state.admin_selected_scale != "All":
-                            scale_name = st.session_state.admin_selected_scale.split(" [")[0]
-                            current_scale_filter = [scale_name]
-                        
-                        current_location_filter = []
-                        if 'admin_selected_location' in st.session_state and st.session_state.admin_selected_location != "All":
-                            location_name = st.session_state.admin_selected_location.split(" [")[0]
-                            current_location_filter = [location_name]
-                        
-                        # Get climate options with counts
-                        climate_options_with_counts = query_climate_options_with_counts(
-                            conn, 
-                            actual_criteria,
-                            actual_method,
-                            selected_direction,
-                            current_scale_filter
-                        )
-                        
-                        if climate_options_with_counts:
-                            if 'admin_selected_climate' not in st.session_state:
-                                st.session_state.admin_selected_climate = "All"
-                            
-                            climate_options_formatted = ["All"] + [formatted for formatted, color, count in climate_options_with_counts]
-                            
-                            # Find the current index
-                            current_climate = st.session_state.admin_selected_climate
-                            current_index = 0
-                            if current_climate != "All":
-                                if " - " in current_climate:
-                                    current_climate_code = current_climate.split(" - ")[0]
-                                    current_climate_code = ''.join([c for c in current_climate_code if c.isalnum()])
-                                else:
-                                    current_climate_code = current_climate
-                                
-                                for i, option in enumerate(climate_options_formatted):
-                                    option_code = option.split(" - ")[0]
-                                    option_code = ''.join([c for c in option_code if c.isalnum()])
-                                    if option_code.upper() == current_climate_code.upper():
-                                        current_index = i
-                                        break
-                                else:
-                                    st.session_state.admin_selected_climate = "All"
-                                    current_index = 0
-                            
-                            selected_climate = st.selectbox(
-                                "Filter by Climate",
-                                options=climate_options_formatted,
-                                index=current_index,
-                                key="admin_climate_filter"
-                            )
-                            
-                            if selected_climate != st.session_state.admin_selected_climate:
-                                st.session_state.admin_selected_climate = selected_climate
-                                st.rerun()
-                            
-                            if selected_climate != "All":
-                                climate_code = selected_climate.split(" - ")[0]
-                                climate_code = ''.join([c for c in climate_code if c.isalnum()])
-                                selected_climates = [climate_code]
-                        else:
-                            st.info("No climate data available for current selection")
-                            selected_climates = None
-                    else:
-                        st.info("No climate data available")
-                        selected_climates = None
-
-                with col_location:
-                    # Location filter
-                    current_direction = selected_direction.split(" [")[0] if " [" in selected_direction else selected_direction
-                    
-                    location_options_with_counts = query_location_options_with_counts(
-                        conn, actual_criteria, actual_method, current_direction, 
-                        selected_scales, selected_climates
-                    )
-                    
-                    if location_options_with_counts:
-                        if 'admin_selected_location' not in st.session_state:
-                            st.session_state.admin_selected_location = "All"
-                        
-                        location_options_formatted = ["All"] + [f"{location} [{count}]" for location, count in location_options_with_counts]
-                        
-                        # Find the current index
-                        current_location = st.session_state.admin_selected_location
-                        current_index = 0
-                        if current_location != "All":
-                            if " [" in current_location:
-                                current_location_name = current_location.split(" [")[0]
-                            else:
-                                current_location_name = current_location
-                            
-                            for i, option in enumerate(location_options_formatted):
-                                if option.startswith(current_location_name + " [") or option == current_location:
-                                    current_index = i
-                                    break
-                            else:
-                                st.session_state.admin_selected_location = "All"
-                                current_index = 0
-                        
-                        selected_location = st.selectbox(
-                            "Filter by Location",
-                            options=location_options_formatted,
-                            index=current_index,
-                            key="admin_location_filter"
-                        )
-                        
-                        if selected_location != st.session_state.admin_selected_location:
-                            st.session_state.admin_selected_location = selected_location
-                            st.rerun()
-                        
-                        if selected_location != "All":
-                            location_name = selected_location.split(" [")[0]
-                            selected_locations = [location_name]
-                    else:
-                        st.info("No location data available")
-                        selected_locations = None
-
-                # Second row: Building Use and Approach
-                col_building_use, col_approach = st.columns(2)
-                
-                with col_building_use:
-                    # Building Use filter
-                    building_use_options_with_counts = query_building_use_options_with_counts(
-                        conn, actual_criteria, actual_method, current_direction,
-                        selected_scales, selected_climates, selected_locations
-                    )
-                    
-                    if building_use_options_with_counts:
-                        if 'admin_selected_building_use' not in st.session_state:
-                            st.session_state.admin_selected_building_use = "All"
-                        
-                        building_use_options_formatted = ["All"] + [f"{use} [{count}]" for use, count in building_use_options_with_counts]
-                        
-                        # Find the current index
-                        current_building_use = st.session_state.admin_selected_building_use
-                        current_index = 0
-                        if current_building_use != "All":
-                            if " [" in current_building_use:
-                                current_use_name = current_building_use.split(" [")[0]
-                            else:
-                                current_use_name = current_building_use
-                            
-                            for i, option in enumerate(building_use_options_formatted):
-                                if option.startswith(current_use_name + " [") or option == current_building_use:
-                                    current_index = i
-                                    break
-                            else:
-                                st.session_state.admin_selected_building_use = "All"
-                                current_index = 0
-                        
-                        selected_building_use = st.selectbox(
-                            "Filter by Building Use",
-                            options=building_use_options_formatted,
-                            index=current_index,
-                            key="admin_building_use_filter"
-                        )
-                        
-                        if selected_building_use != st.session_state.admin_selected_building_use:
-                            st.session_state.admin_selected_building_use = selected_building_use
-                            st.rerun()
-                        
-                        if selected_building_use != "All":
-                            building_use_name = selected_building_use.split(" [")[0]
-                            selected_building_uses = [building_use_name]
-                    else:
-                        st.info("No building use data available")
-                        selected_building_uses = None
-
-                with col_approach:
-                    # Approach filter (fixed options)
-                    approach_options_with_counts = query_approach_options_with_counts(
-                        conn, actual_criteria, actual_method, current_direction,
-                        selected_scales, selected_climates, selected_locations, selected_building_uses
-                    )
-                    
-                    if approach_options_with_counts:
-                        if 'admin_selected_approach' not in st.session_state:
-                            st.session_state.admin_selected_approach = "All"
-                        
-                        approach_options_formatted = ["All"] + [f"{approach} [{count}]" for approach, count in approach_options_with_counts]
-                        
-                        # Find the current index
-                        current_approach = st.session_state.admin_selected_approach
-                        current_index = 0
-                        if current_approach != "All":
-                            if " [" in current_approach:
-                                current_approach_name = current_approach.split(" [")[0]
-                            else:
-                                current_approach_name = current_approach
-                            
-                            for i, option in enumerate(approach_options_formatted):
-                                if option.startswith(current_approach_name + " [") or option == current_approach:
-                                    current_index = i
-                                    break
-                            else:
-                                st.session_state.admin_selected_approach = "All"
-                                current_index = 0
-                        
-                        selected_approach = st.selectbox(
-                            "Filter by Approach",
-                            options=approach_options_formatted,
-                            index=current_index,
-                            key="admin_approach_filter"
-                        )
-                        
-                        if selected_approach != st.session_state.admin_selected_approach:
-                            st.session_state.admin_selected_approach = selected_approach
-                            st.rerun()
-                        
-                        if selected_approach != "All":
-                            approach_name = selected_approach.split(" [")[0]
-                            selected_approaches = [approach_name]
-                    else:
-                        st.info("No approach data available")
-                        selected_approaches = None
-
-    # Filter records based on selections
-    filtered_records = records
-    
-    # Apply filters in memory
-    if actual_criteria and actual_criteria != "All determinants":
-        filtered_records = [r for r in filtered_records if r[1] == actual_criteria]
-    
-    if actual_method and actual_method != "All outputs":
-        filtered_records = [r for r in filtered_records if r[2] == actual_method]
-    
-    if selected_direction:
-        clean_direction = selected_direction.split(" [")[0] if " [" in selected_direction else selected_direction
-        filtered_records = [r for r in filtered_records if r[3] == clean_direction]
-    
-    if selected_scales:
-        filtered_records = [r for r in filtered_records if r[7] in selected_scales]
-    
-    if selected_climates:
-        selected_climates_upper = [c.upper() for c in selected_climates]
-        filtered_records = [r for r in filtered_records if r[8] and r[8].upper() in selected_climates_upper]
-    
-    if selected_locations:
-        filtered_records = [r for r in filtered_records if r[9] in selected_locations]
-    
-    if selected_building_uses:
-        filtered_records = [r for r in filtered_records if r[10] in selected_building_uses]
-    
-    if selected_approaches:
-        filtered_records = [r for r in filtered_records if r[11] in selected_approaches]
-
-    # Only show results when we have the basic selections
-    if actual_criteria and actual_method and selected_direction:
-        st.write(f"**Showing {len(filtered_records)} approved records**")
-    else:
-        st.write("**Please select a determinant, energy output, and direction to see records**")
-        filtered_records = []
-    
-    # Process records in batches if needed
-    BATCH_SIZE = 10
-    if len(filtered_records) > BATCH_SIZE:
-        total_pages = (len(filtered_records) + BATCH_SIZE - 1) // BATCH_SIZE
-        page = st.number_input("Page", min_value=1, max_value=total_pages, value=1, key="admin_edit_page")
-        start_idx = (page - 1) * BATCH_SIZE
-        end_idx = min(start_idx + BATCH_SIZE, len(filtered_records))
-        display_records = filtered_records[start_idx:end_idx]
-    else:
-        display_records = filtered_records
-    
-    # DISPLAY RESULTS - Show study content directly in text fields
-    for record in display_records:
-        record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
-        
-        st.markdown("---")
-
-        # Check if this record is being edited
-        is_editing = st.session_state.admin_editing_record_id == record_id
-        
-        # Header with Edit/Save buttons
-        col_header1, col_header2 = st.columns([3, 1])
-        with col_header1:
-            st.write(f"**Record ID:** {record_id}")
-            st.caption(f"Originally submitted by: {user}")
-        
-        with col_header2:
-            edit_mode = st.session_state.get(f"admin_full_edit_{record_id}", False)
-            
-            if not edit_mode:
-                if st.button("✏️ Edit Record", key=f"admin_full_edit_btn_{record_id}", use_container_width=True):
-                    # Fetch the complete record from database
-                    cursor_local = conn.cursor()
-                    cursor_local.execute('''
-                        SELECT id, criteria, energy_method, direction, paragraph, user, status, 
-                                scale, climate, location, building_use, approach, sample_size
-                        FROM energy_data 
-                        WHERE id = ?
-                    ''', (record_id,))
-                    
-                    record_data = cursor_local.fetchone()
-                    
-                    if record_data:
-                        # Store the record data in session state for editing
-                        st.session_state[f"edit_data_{record_id}"] = {
-                            'criteria': record_data[1],
-                            'energy_method': record_data[2],
-                            'direction': record_data[3],
-                            'paragraph': record_data[4],
-                            'user': record_data[5],
-                            'status': record_data[6],
-                            'scale': record_data[7],
-                            'climate': record_data[8],
-                            'location': record_data[9],
-                            'building_use': record_data[10],
-                            'approach': record_data[11],
-                            'sample_size': record_data[12]
-                        }
-                    
-                    # Enter edit mode
-                    st.session_state[f"admin_full_edit_{record_id}"] = True
-                    st.rerun()
-        
-        # Display/Edit all fields
-        if st.session_state.get(f"admin_full_edit_{record_id}"):
-            # Edit Mode - Fetch data from session state or use current
-            edit_data = st.session_state.get(f"edit_data_{record_id}", {
-                'criteria': criteria,
-                'energy_method': energy_method,
-                'direction': direction,
-                'paragraph': paragraph,
-                'user': user,
-                'status': status,
-                'scale': scale,
-                'climate': climate,
-                'location': location,
-                'building_use': building_use,
-                'approach': approach,
-                'sample_size': sample_size
-            })
-            
-            # Define callback to clear edit mode
-            def clear_full_edit_mode():
-                st.session_state[f"admin_full_edit_{record_id}"] = False
-                if f"edit_data_{record_id}" in st.session_state:
-                    del st.session_state[f"edit_data_{record_id}"]
-            
-            saved = display_unified_edit_form(record_id, edit_data, is_pending=False, clear_edit_callback=clear_full_edit_mode)
-            if saved:
-                # Clear edit mode and stored data
-                st.session_state[f"admin_full_edit_{record_id}"] = False
-                if f"edit_data_{record_id}" in st.session_state:
-                    del st.session_state[f"edit_data_{record_id}"]
-                time.sleep(1)
-                st.rerun()
-                    
-        else:
-            # View Mode - Display all information clearly
-            col1, col2 = st.columns(2)
-            
+            # Search button
+            col1, col2 = st.columns([1, 5])
             with col1:
-                st.write(f"**Determinant:** {criteria}")
-                st.write(f"**Energy Output:** {energy_method}")
-                st.write(f"**Direction:** {direction}")
-                if location:
-                    st.write(f"**Location:** {location}")
-                if building_use:
-                    st.write(f"**Building Use:** {building_use}")
-                if approach:
-                    st.write(f"**Approach:** {approach}")
-                if sample_size:
-                    st.write(f"**Sample Size:** {sample_size}")
-            
+                if st.button("🔍 Search", type="primary", use_container_width=True, key="admin_search_button"):
+                    st.session_state.admin_search_triggered = True
+                    st.session_state.admin_selected_edit_id = None
+                    st.rerun()
             with col2:
-                st.write(f"**Scale:** {scale}")
-                
-                if climate:
-                    # Handle different climate option formats for display
-                    formatted_climate_display = climate
-                    if climate_options and isinstance(climate_options[0], tuple):
-                        # Try to find the formatted version from climate_options
-                        for option in climate_options:
-                            if len(option) == 3:
-                                formatted, color_option, count = option
-                            else:
-                                formatted, color_option = option
-                                
-                            # Check if this formatted option matches our climate
-                            climate_code_from_formatted = formatted.split(" - ")[0]
-                            # Remove emoji to get just the code
-                            climate_code_clean = ''.join([c for c in climate_code_from_formatted if c.isalnum()])
-                            if climate_code_clean.upper() == climate.upper():
-                                # REMOVE COUNT FROM DISPLAY
-                                if " [" in formatted:
-                                    formatted_climate_display = formatted.split(" [")[0]
-                                else:
-                                    formatted_climate_display = formatted
-                                break
-                    
-                    color = get_climate_color(climate)
-                    st.markdown(f"**Climate:** <span style='background-color: {color}; padding: 2px 8px; border-radius: 10px; color: black;'>{formatted_climate_display}</span>", unsafe_allow_html=True)
-
-                st.write(f"**Status:** {status}")
-                st.write(f"**Submitted by:** {user}")
+                if st.button("✕ Clear", use_container_width=True, key="admin_clear_button"):
+                    st.session_state.admin_search_triggered = False
+                    st.session_state.admin_selected_edit_id = None
+                    if "admin_search_results" in st.session_state:
+                        del st.session_state.admin_search_results
+                    st.rerun()
+    
+    # ============= LOAD RESULTS ONLY WHEN SEARCH IS CLICKED =============
+    if st.session_state.get("admin_search_triggered", False) and actual_criteria and actual_method and selected_direction:
+        
+        with st.spinner("Loading records..."):
+            clean_direction = selected_direction.split(" [")[0] if selected_direction else None
             
-            # Study content - ALWAYS VISIBLE, not in expander
-            st.write("**Study Content:**")
-            display_study_content(paragraph, record_id)
-
+            # Get records
+            cursor.execute('''
+                SELECT id, criteria, energy_method, direction, paragraph, user, status, 
+                       scale, climate, location, building_use, approach, sample_size
+                FROM energy_data 
+                WHERE status NOT IN ("pending", "rejected")
+                  AND criteria = ?
+                  AND energy_method = ?
+                  AND direction = ?
+                  AND paragraph IS NOT NULL 
+                  AND paragraph != '' 
+                  AND paragraph != '0' 
+                  AND paragraph != '0.0'
+                  AND paragraph != 'None'
+                  AND LENGTH(TRIM(paragraph)) > 0
+                ORDER BY id DESC
+                LIMIT 100
+            ''', (actual_criteria, actual_method, clean_direction))
+            
+            records = cursor.fetchall()
+            st.session_state.admin_search_results = records
+            
+            st.write(f"**Found {len(records)} records**")
+            
+            if records:
+                # ============= DROPDOWN TO SELECT RECORD TO EDIT =============
+                st.markdown("### ✏️ Select Record to Edit")
+                
+                # Create dropdown of record IDs
+                edit_options = {f"ID {r[0]}: {r[1]} → {r[2]} ({r[3]}) | {r[5]} | {r[6]}": r[0] for r in records}
+                
+                if edit_options:
+                    selected_record_display = st.selectbox(
+                        "Choose a record to edit:",
+                        options=["-- Select a record --"] + list(edit_options.keys()),
+                        key="admin_record_selector"
+                    )
+                    
+                    # When a record is selected, set it as the edit target
+                    if selected_record_display != "-- Select a record --":
+                        selected_id = edit_options[selected_record_display]
+                        if st.session_state.admin_selected_edit_id != selected_id:
+                            st.session_state.admin_selected_edit_id = selected_id
+                            st.rerun()
+                
+                # ============= EDIT FORM FOR SELECTED RECORD =============
+                if st.session_state.admin_selected_edit_id:
+                    record_id = st.session_state.admin_selected_edit_id
+                    
+                    st.markdown("---")
+                    st.markdown(f"### ✏️ Editing Record {record_id}")
+                    
+                    # Cancel button
+                    col_cancel_top, _ = st.columns([1, 5])
+                    with col_cancel_top:
+                        if st.button("❌ Cancel Editing", key="admin_cancel_edit_top", use_container_width=True):
+                            st.session_state.admin_selected_edit_id = None
+                            st.rerun()
+                    
+                    # Fetch the specific record
+                    cursor.execute('''
+                        SELECT criteria, energy_method, direction, paragraph, user, status,
+                               scale, climate, location, building_use, approach, sample_size
+                        FROM energy_data WHERE id = ?
+                    ''', (record_id,))
+                    edit_record = cursor.fetchone()
+                    
+                    if edit_record:
+                        with st.form(key=f"admin_edit_form_{record_id}"):
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                new_criteria = st.text_input("Determinant", value=edit_record[0])
+                                new_energy = st.text_input("Energy Output", value=edit_record[1])
+                                new_direction = st.selectbox("Direction", ["Increase", "Decrease"], 
+                                                           index=0 if edit_record[2] == "Increase" else 1)
+                                new_scale = st.text_input("Scale", value=edit_record[6] or "")
+                                new_climate = st.text_input("Climate", value=edit_record[7] or "")
+                                new_location = st.text_input("Location", value=edit_record[8] or "")
+                            
+                            with col2:
+                                new_building_use = st.text_input("Building Use", value=edit_record[9] or "")
+                                new_approach = st.text_input("Approach", value=edit_record[10] or "")
+                                new_sample_size = st.text_input("Sample Size", value=edit_record[11] or "")
+                                new_status = st.selectbox("Status", ["approved", "pending", "rejected"],
+                                                        index=0 if edit_record[5] == "approved" else 
+                                                              1 if edit_record[5] == "pending" else 2)
+                            
+                            new_paragraph = st.text_area("Study Content", value=edit_record[3], height=150)
+                            
+                            # Save button only
+                            if st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True):
+                                cursor.execute('''
+                                    UPDATE energy_data 
+                                    SET criteria = ?, energy_method = ?, direction = ?, paragraph = ?,
+                                        scale = ?, climate = ?, location = ?, building_use = ?,
+                                        approach = ?, sample_size = ?, status = ?
+                                    WHERE id = ?
+                                ''', (new_criteria, new_energy, new_direction, new_paragraph,
+                                     new_scale, new_climate, new_location, new_building_use,
+                                     new_approach, new_sample_size, new_status, record_id))
+                                conn.commit()
+                                st.session_state.admin_selected_edit_id = None
+                                st.success("✅ Record updated successfully!")
+                                st.rerun()
+    else:
+        if actual_criteria and actual_method and selected_direction:
+            st.info("👆 Click 'Search' to load records")
+        else:
+            st.info("👆 Select a determinant, energy output, and direction, then click Search")
 
 def review_pending_data():
     global conn
@@ -4426,7 +4337,467 @@ db_file = 'my_database.db'
 # conn = sqlite3.connect(db_file)
 
 # Query functions #######################################################
-# Update the query_paragraphs function to handle case-insensitive matching:
+
+# Add this new function to query all papers from the database
+def query_all_papers(conn):
+    """Query all unique papers/studies from the database with their metadata"""
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT 
+            id,
+            paragraph as study_text,
+            criteria,
+            energy_method,
+            direction,
+            scale,
+            climate,
+            location,
+            building_use,
+            approach,
+            sample_size,
+            status,
+            user
+        FROM energy_data 
+        WHERE paragraph IS NOT NULL 
+          AND paragraph != '' 
+          AND paragraph != '0' 
+          AND paragraph != '0.0'
+          AND paragraph != 'None'
+          AND LENGTH(TRIM(paragraph)) > 0
+          AND status NOT IN ("rejected")
+        ORDER BY id DESC
+    ''')
+    
+    papers = cursor.fetchall()
+    return papers
+
+def render_papers_tab():
+    """Render the Papers tab with search functionality - LOADS NOTHING UNTIL SEARCH"""
+    st.title("Research Papers Database")
+    
+    st.markdown("""
+    Browse all studies in the SpatialBuild Energy database. 
+    Use the search box below to filter papers by title, author, determinant, climate code, or any other text.
+    """)
+    
+    st.markdown("---")
+    
+    # ============= CLEAN SESSION STATE =============
+    if "papers_search_performed" not in st.session_state:
+        st.session_state.papers_search_performed = False
+    
+    if "papers_current_results" not in st.session_state:
+        st.session_state.papers_current_results = None
+    
+    if "papers_current_page" not in st.session_state:
+        st.session_state.papers_current_page = 0
+    
+    if "papers_search_query" not in st.session_state:
+        st.session_state.papers_search_query = ""
+    
+    # ============= CUSTOM CSS FOR PAGINATION =============
+    st.markdown("""
+    <style>
+    /* Center pagination controls */
+    div[data-testid="column"]:has(button[key*="papers_prev"]),
+    div[data-testid="column"]:has(button[key*="papers_next"]) {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+    
+    /* Center the page counter text */
+    div[data-testid="column"]:has(p:contains("Page")) {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+    }
+    
+    /* Make pagination buttons consistent */
+    button[key*="papers_prev"], button[key*="papers_next"] {
+        width: 100px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # ============= SEARCH INTERFACE =============
+    
+    # Search row
+    col1, col2 = st.columns([4, 1.2])
+    
+    with col1:
+        st.markdown("**Search Papers**")
+        
+        # Function to handle search on Enter
+        def on_search_change():
+            if st.session_state.papers_search_input:
+                st.session_state.papers_search_triggered = True
+                st.session_state.papers_search_query = st.session_state.papers_search_input
+            else:
+                # If search is cleared, reset everything
+                st.session_state.papers_search_triggered = False
+                st.session_state.papers_search_query = ""
+                st.session_state.papers_current_results = []
+                st.session_state.papers_search_performed = False
+                st.session_state.papers_last_query = ""
+                st.session_state.papers_current_page = 0
+        
+        # The text input
+        search_query = st.text_input(
+            "Search papers",
+            placeholder="Type to search by title, author, determinant, climate...",
+            key="papers_search_input",
+            label_visibility="collapsed",
+            on_change=on_search_change,
+            value=st.session_state.get("papers_search_query", "")
+        )
+    
+    with col2:
+        st.markdown("**Sort by**")
+        sort_order = st.selectbox(
+            "Sort results by",
+            ["Newest first", "Oldest first", "Determinant A-Z"],
+            key="papers_sort",
+            label_visibility="collapsed"
+        )
+    
+    # Get current search query from widget
+    current_search = st.session_state.get("papers_search_input", "")
+    
+    # Trigger search from on_change event
+    if st.session_state.get("papers_search_triggered", False) and current_search:
+        search_query = current_search
+        st.session_state.papers_search_triggered = False
+        st.session_state.papers_search_query = search_query
+        st.session_state.papers_last_query = search_query
+        st.session_state.papers_search_performed = True
+        
+        with st.spinner(f"Searching for '{search_query}'..."):
+            # Create local connection
+            conn_local = sqlite3.connect(db_file)
+            cursor = conn_local.cursor()
+            
+            # Search using SQL LIKE
+            search_pattern = f'%{search_query}%'
+            
+            cursor.execute('''
+                SELECT 
+                    id,
+                    paragraph,
+                    criteria,
+                    energy_method,
+                    direction,
+                    scale,
+                    climate,
+                    location,
+                    building_use,
+                    approach,
+                    sample_size
+                FROM energy_data 
+                WHERE paragraph IS NOT NULL 
+                  AND paragraph != '' 
+                  AND paragraph != '0' 
+                  AND paragraph != '0.0'
+                  AND paragraph != 'None'
+                  AND LENGTH(TRIM(paragraph)) > 0
+                  AND status NOT IN ("rejected")
+                  AND (
+                      LOWER(paragraph) LIKE LOWER(?) OR
+                      LOWER(criteria) LIKE LOWER(?) OR
+                      LOWER(energy_method) LIKE LOWER(?) OR
+                      LOWER(location) LIKE LOWER(?) OR
+                      LOWER(climate) LIKE LOWER(?) OR
+                      LOWER(building_use) LIKE LOWER(?) OR
+                      LOWER(approach) LIKE LOWER(?)
+                  )
+                ORDER BY id DESC
+            ''', (search_pattern, search_pattern, search_pattern, 
+                  search_pattern, search_pattern, search_pattern, search_pattern))
+            
+            results = cursor.fetchall()
+            conn_local.close()
+            
+            # Store results
+            st.session_state.papers_current_results = results
+            st.session_state.papers_current_page = 0
+            
+            st.rerun()
+    
+    # ============= RESULTS HEADER AND CLEAR BUTTON =============
+    # Only show when there's a search query and results exist
+    if (st.session_state.get("papers_search_performed", False) and 
+        st.session_state.get("papers_last_query", "") and 
+        st.session_state.papers_current_results is not None):
+        
+        results = st.session_state.papers_current_results
+        search_query = st.session_state.get("papers_last_query", "")
+        
+        # Sort results
+        if sort_order == "Newest first":
+            results.sort(key=lambda x: x[0], reverse=True)
+        elif sort_order == "Oldest first":
+            results.sort(key=lambda x: x[0])
+        elif sort_order == "Determinant A-Z":
+            results.sort(key=lambda x: str(x[2] or '').lower())
+        
+        # Results header with inline clear button
+        if len(results) > 0:
+            col_header, col_clear = st.columns([4, 1])
+            with col_header:
+                st.success(f"Found {len(results)} paper(s) matching '{search_query}'")
+            with col_clear:
+                # Clear button positioned next to the success message
+                if st.button("✕ Clear", key=f"clear_btn_{st.session_state.get('papers_clear_counter', 0)}", 
+                           help="Clear search", use_container_width=False):
+                    st.session_state.papers_clear_counter = st.session_state.get('papers_clear_counter', 0) + 1
+                    st.session_state.papers_search_query = ""
+                    st.session_state.papers_current_results = []
+                    st.session_state.papers_search_performed = False
+                    st.session_state.papers_search_triggered = False
+                    st.session_state.papers_current_page = 0
+                    st.session_state.papers_last_query = ""
+                    st.rerun()
+            
+            # ============= TOP PAGINATION =============
+            PAPERS_PER_PAGE = 5
+            total_pages = (len(results) + PAPERS_PER_PAGE - 1) // PAPERS_PER_PAGE
+            
+            if total_pages > 1:
+                col_prev, col_page, col_next = st.columns([1, 1, 1])
+                
+                with col_prev:
+                    if st.button("◀ Previous", disabled=st.session_state.papers_current_page == 0, 
+                               key="papers_prev_top", use_container_width=True):
+                        st.session_state.papers_current_page = max(0, st.session_state.papers_current_page - 1)
+                        st.rerun()
+                
+                with col_page:
+                    st.markdown(f"<div style='text-align: center; font-weight: 500;'>Page {st.session_state.papers_current_page + 1} of {total_pages}</div>", 
+                              unsafe_allow_html=True)
+                
+                with col_next:
+                    if st.button("Next ▶", disabled=st.session_state.papers_current_page >= total_pages - 1, 
+                               key="papers_next_top", use_container_width=True):
+                        st.session_state.papers_current_page = min(total_pages - 1, st.session_state.papers_current_page + 1)
+                        st.rerun()
+            
+            # Get current page
+            start_idx = st.session_state.papers_current_page * PAPERS_PER_PAGE
+            end_idx = min(start_idx + PAPERS_PER_PAGE, len(results))
+            page_results = results[start_idx:end_idx]
+            
+            # Display current page indicator
+            st.markdown(f"<div style='text-align: right; color: #666; font-size: 0.9em;'>Showing {start_idx + 1}-{end_idx} of {len(results)} records</div>", 
+                      unsafe_allow_html=True)
+            
+            # ============= DISPLAY RESULTS =============
+            for record in page_results:
+                record_id, paragraph, criteria, energy_method, direction, scale, climate, location, building_use, approach, sample_size = record
+                
+                st.markdown("---")
+                
+                # TWO COLUMN LAYOUT
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write(f"**{criteria}** → **{energy_method}** ({direction})")
+                    st.write(f"**Record ID:** {record_id}")
+                    if location:
+                        st.write(f"**Location:** {location}")
+                    if building_use:
+                        st.write(f"**Building Use:** {building_use}")
+                
+                with col2:
+                    st.write(f"**Scale:** {scale if scale else 'Not specified'}")
+                    if climate:
+                        color = get_climate_color(climate)
+                        st.markdown(f"**Climate:** <span style='background-color: {color}; padding: 2px 8px; border-radius: 10px; color: black;'>{climate}</span>", unsafe_allow_html=True)
+                    if approach:
+                        st.write(f"**Approach:** {approach}")
+                    if sample_size:
+                        st.write(f"**Sample Size:** {sample_size}")
+                
+                # STUDY CONTENT
+                highlighted_paragraph = paragraph
+                if search_query:
+                    import re
+                    pattern = re.compile(re.escape(search_query), re.IGNORECASE)
+                    highlighted_paragraph = pattern.sub(
+                        lambda m: f"<span style='background-color: #FFFF00; font-weight: bold;'>{m.group()}</span>", 
+                        highlighted_paragraph
+                    )
+                
+                paragraph_with_links = convert_urls_to_links(highlighted_paragraph)
+                
+                # STUDY CONTENT
+                st.markdown(
+                    f'''
+                    <div style="
+                        border: 1px solid #e0e0e0;
+                        padding: 15px;
+                        border-radius: 8px;
+                        background-color: #f9f9fb;  /* Light grey tint */
+                        max-height: 250px;
+                        overflow-y: auto;
+                        font-family: Arial, sans-serif;
+                        line-height: 1.5;
+                        font-size: 14px;
+                        user-select: text;
+                        -webkit-user-select: text;
+                        cursor: text;
+                    ">
+                        {paragraph_with_links}
+                    </div>
+                    ''',
+                    unsafe_allow_html=True
+                )
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+            
+            # ============= BOTTOM PAGINATION =============
+            if total_pages > 1:
+                st.markdown("---")
+                
+                col_prev_bottom, col_page_bottom, col_next_bottom = st.columns([1, 1, 1])
+                
+                with col_prev_bottom:
+                    if st.button("◀ Previous", disabled=st.session_state.papers_current_page == 0, 
+                               key="papers_prev_bottom", use_container_width=True):
+                        st.session_state.papers_current_page = max(0, st.session_state.papers_current_page - 1)
+                        st.rerun()
+                
+                with col_page_bottom:
+                    st.markdown(f"<div style='text-align: center; font-weight: 500;'>Page {st.session_state.papers_current_page + 1} of {total_pages}</div>", 
+                              unsafe_allow_html=True)
+                
+                with col_next_bottom:
+                    if st.button("Next ▶", disabled=st.session_state.papers_current_page >= total_pages - 1, 
+                               key="papers_next_bottom", use_container_width=True):
+                        st.session_state.papers_current_page = min(total_pages - 1, st.session_state.papers_current_page + 1)
+                        st.rerun()
+                
+                st.markdown(f"<div style='text-align: right; color: #666; font-size: 0.9em; margin-top: 5px;'>Showing {start_idx + 1}-{end_idx} of {len(results)} records</div>", 
+                          unsafe_allow_html=True)
+    
+    # Initial state - no search performed yet
+    elif not st.session_state.papers_search_performed:
+        st.info("Enter a search term above and press Enter to find papers in the database.")
+    
+    # Empty search state - show nothing
+
+def render_enhanced_papers_tab():
+    """Enhanced Papers tab - NO statistics for admin to prevent slowdown"""
+    
+    # Check if current user is admin
+    is_admin = st.session_state.get("user_role") == "admin"
+    
+    if is_admin:
+        # Admin gets SIMPLE view - search only, no statistics
+        render_papers_tab()
+    else:
+        # Regular users get both tabs
+        view_tab1, view_tab2 = st.tabs(["Search Papers", "Statistics"])
+        
+        with view_tab1:
+            render_papers_tab()
+    
+        with view_tab2:
+            # Statistics tab - this can still load data because it's just counts, not full records
+            conn_local = sqlite3.connect(db_file)
+            cursor = conn_local.cursor()
+            
+            # Get comprehensive statistics
+            cursor.execute('''
+                SELECT 
+                    COUNT(DISTINCT paragraph) as total_papers,
+                    COUNT(DISTINCT criteria) as unique_determinants,
+                    COUNT(DISTINCT energy_method) as unique_outputs,
+                    COUNT(DISTINCT location) as unique_locations,
+                    COUNT(DISTINCT climate) as unique_climates,
+                    COUNT(DISTINCT user) as unique_contributors,
+                    SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved_count,
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_count
+                FROM energy_data 
+                WHERE paragraph IS NOT NULL 
+                AND paragraph != '' 
+                AND paragraph != '0' 
+                AND paragraph != '0.0'
+                AND paragraph != 'None'
+                AND LENGTH(TRIM(paragraph)) > 0
+            ''')
+            
+            stats = cursor.fetchone()
+            
+            # Display statistics in columns
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Papers", stats[0] or 0)
+                st.metric("Unique Determinants", stats[1] or 0)
+                st.metric("Unique Energy Outputs", stats[2] or 0)
+            
+            with col2:
+                st.metric("Unique Locations", stats[3] or 0)
+                st.metric("Unique Climates", stats[4] or 0)
+                st.metric("Unique Contributors", stats[5] or 0)
+            
+            with col3:
+                st.metric("Approved Papers", stats[6] or 0)
+                st.metric("Pending Review", stats[7] or 0)
+            
+            # Show climate code distribution
+            st.subheader("🌍 Climate Code Distribution")
+            cursor.execute('''
+                SELECT climate, COUNT(*) as count
+                FROM energy_data 
+                WHERE climate IS NOT NULL 
+                AND climate != '' 
+                AND climate != 'Awaiting data'
+                AND paragraph IS NOT NULL 
+                AND paragraph != '' 
+                AND paragraph != '0' 
+                AND paragraph != '0.0'
+                AND paragraph != 'None'
+                AND LENGTH(TRIM(paragraph)) > 0
+                AND status NOT IN ("rejected")
+                GROUP BY climate
+                ORDER BY count DESC
+                LIMIT 10
+            ''')
+            
+            top_climates = cursor.fetchall()
+            for climate, count in top_climates:
+                # Extract clean code for display
+                if climate and " - " in str(climate):
+                    climate_code = str(climate).split(" - ")[0]
+                    climate_code = ''.join([c for c in climate_code if c.isalnum()])
+                    st.write(f"- **{climate_code}**: {count} studies")
+                else:
+                    st.write(f"- **{climate}**: {count} studies")
+            
+            # Show top determinants
+            st.subheader("🔝 Most Studied Determinants")
+            cursor.execute('''
+                SELECT criteria, COUNT(*) as count
+                FROM energy_data 
+                WHERE paragraph IS NOT NULL 
+                AND paragraph != '' 
+                AND paragraph != '0' 
+                AND paragraph != '0.0'
+                AND paragraph != 'None'
+                AND LENGTH(TRIM(paragraph)) > 0
+                AND status NOT IN ("rejected")
+                GROUP BY criteria
+                ORDER BY count DESC
+                LIMIT 10
+            ''')
+            
+            top_determinants = cursor.fetchall()
+            for i, (criteria, count) in enumerate(top_determinants, 1):
+                st.write(f"{i}. **{criteria}**: {count} studies")
+            
+            conn_local.close()
+
 def query_paragraphs(conn, criteria, energy_method, direction, selected_scales=None, selected_dominant_climates=None):
     """Query paragraphs with filters - handle climate codes case-insensitively"""
     try:
@@ -5000,7 +5371,7 @@ def query_approach_options_with_counts(conn, criteria=None, energy_method=None, 
     return [(row[0], row[1]) for row in results if row[0] and str(row[0]).strip()]
 
 def render_unified_search_interface(enable_editing=False):
-    """Unified search interface used by both main app and admin"""
+    """Unified search interface used by both main app and admin - WITH FULL FILTERS AND FORMATTING"""
     global conn
     cursor = conn.cursor()
     
@@ -5056,11 +5427,9 @@ def render_unified_search_interface(enable_editing=False):
     actual_method = None
 
     # UNIFIED FILTER LAYOUT
-    # Step 1: Determinant dropdown - full width
     selected_criteria = st.selectbox("Determinant", criteria_list, key="unified_criteria")
     actual_criteria = selected_criteria.split(" [")[0] if selected_criteria != "Select a determinant" else None
     
-    # Step 2: Energy Output dropdown - full width (only if determinant is selected)
     if actual_criteria:
         energy_method_counts = query_energy_method_counts(conn, actual_criteria)
         method_list = ["Select an output"] + [f"{method} [{count}]" for method, count in energy_method_counts]
@@ -5068,7 +5437,6 @@ def render_unified_search_interface(enable_editing=False):
         selected_method = st.selectbox("Energy Output(s)", method_list, key="unified_method")
         actual_method = selected_method.split(" [")[0] if selected_method != "Select an output" else None
         
-        # Step 3: Direction radio buttons - full width (only if both determinant and method are selected)
         if actual_method:
             direction_counts = query_direction_counts(conn, actual_criteria, actual_method)
             increase_count = direction_counts.get("Increase", 0)
@@ -5081,13 +5449,11 @@ def render_unified_search_interface(enable_editing=False):
                 key="unified_direction"
             )
             
-            # Step 4: Additional filters in columns (only when direction is selected)
             if selected_direction:
-                # First row of filters: Scale and Climate
+                # Filters
                 col_scale, col_climate = st.columns(2)
                 
                 with col_scale:
-                    # Scale filter
                     if scale_options:
                         current_climate_filter = []
                         if 'unified_selected_climate' in st.session_state and st.session_state.unified_selected_climate != "All":
@@ -5111,7 +5477,6 @@ def render_unified_search_interface(enable_editing=False):
                             
                             scale_options_formatted = ["All"] + [f"{scale} [{count}]" for scale, count in scale_options_with_counts]
                             
-                            # Smart index calculation
                             current_scale = st.session_state.unified_selected_scale
                             current_index = 0
                             if current_scale != "All":
@@ -5146,7 +5511,6 @@ def render_unified_search_interface(enable_editing=False):
                         st.info("No scale data available")
 
                 with col_climate:
-                    # Climate filter
                     if climate_options:
                         current_scale_filter = []
                         if 'unified_selected_scale' in st.session_state and st.session_state.unified_selected_scale != "All":
@@ -5158,17 +5522,12 @@ def render_unified_search_interface(enable_editing=False):
                             location_name = st.session_state.unified_selected_location.split(" [")[0]
                             current_location_filter = [location_name]
                         
-                        # Pass None for direction if it's not selected yet
-                        current_direction = None
-                        if selected_direction and selected_direction != "Select a direction":
-                            current_direction = selected_direction
-                        
                         climate_options_with_counts = query_climate_options_with_counts(
                             conn, 
-                            actual_criteria,  # This might be None if not selected
-                            actual_method,    # This might be None if not selected
-                            current_direction,  # Pass None if not selected
-                            current_scale_filter  # Pass current scale filter
+                            actual_criteria,
+                            actual_method,
+                            selected_direction,
+                            current_scale_filter
                         )
                         
                         if climate_options_with_counts:
@@ -5177,7 +5536,6 @@ def render_unified_search_interface(enable_editing=False):
                             
                             climate_options_formatted = ["All"] + [formatted for formatted, color, count in climate_options_with_counts]
                             
-                            # Smart index calculation
                             current_climate = st.session_state.unified_selected_climate
                             current_index = 0
                             if current_climate != "All":
@@ -5215,11 +5573,10 @@ def render_unified_search_interface(enable_editing=False):
                     else:
                         st.info("No climate data available")
 
-                # Second row of filters: Location and Building Use
+                # Location and Building Use filters
                 col_location, col_building_use = st.columns(2)
                 
                 with col_location:
-                    # Location filter
                     current_direction = selected_direction.split(" [")[0] if " [" in selected_direction else selected_direction
                     
                     location_options_with_counts = query_location_options_with_counts(
@@ -5233,7 +5590,6 @@ def render_unified_search_interface(enable_editing=False):
                         
                         location_options_formatted = ["All"] + [f"{location} [{count}]" for location, count in location_options_with_counts]
                         
-                        # Smart index calculation
                         current_location = st.session_state.unified_selected_location
                         current_index = 0
                         if current_location != "All":
@@ -5268,7 +5624,6 @@ def render_unified_search_interface(enable_editing=False):
                         st.info("No location data available")
 
                 with col_building_use:
-                    # Building Use filter
                     building_use_options_with_counts = query_building_use_options_with_counts(
                         conn, actual_criteria, actual_method, current_direction,
                         selected_scales, selected_climates, selected_locations
@@ -5280,7 +5635,6 @@ def render_unified_search_interface(enable_editing=False):
                         
                         building_use_options_formatted = ["All"] + [f"{use} [{count}]" for use, count in building_use_options_with_counts]
                         
-                        # Smart index calculation
                         current_building_use = st.session_state.unified_selected_building_use
                         current_index = 0
                         if current_building_use != "All":
@@ -5314,11 +5668,10 @@ def render_unified_search_interface(enable_editing=False):
                     else:
                         st.info("No building use data available")
 
-                # Third row: Approach filter
+                # Approach filter
                 col_approach = st.columns(1)[0]
                 
                 with col_approach:
-                    # Approach filter
                     approach_options_with_counts = query_approach_options_with_counts(
                         conn, actual_criteria, actual_method, current_direction,
                         selected_scales, selected_climates, selected_locations, selected_building_uses
@@ -5330,7 +5683,6 @@ def render_unified_search_interface(enable_editing=False):
                         
                         approach_options_formatted = ["All"] + [f"{approach} [{count}]" for approach, count in approach_options_with_counts]
                         
-                        # Smart index calculation
                         current_approach = st.session_state.unified_selected_approach
                         current_index = 0
                         if current_approach != "All":
@@ -5376,7 +5728,6 @@ def render_unified_search_interface(enable_editing=False):
     if selected_scales:
         filtered_records = [r for r in filtered_records if r[7] in selected_scales]
     if selected_climates:
-        # Case-insensitive comparison
         selected_climates_upper = [c.upper() for c in selected_climates]
         filtered_records = [r for r in filtered_records if r[8] and r[8].upper() in selected_climates_upper]
     if selected_locations:
@@ -5386,25 +5737,53 @@ def render_unified_search_interface(enable_editing=False):
     if selected_approaches:
         filtered_records = [r for r in filtered_records if r[11] in selected_approaches]
 
-    # Display results
+    # ============= RESULTS DISPLAY - NO EXPANDER, DIRECT 2-COLUMN LAYOUT =============
     if actual_criteria and actual_method and selected_direction:
         if len(filtered_records) == 1:
             st.markdown(f"<p><b>The following study shows that an increase (or presence) in {actual_criteria} leads to <i>{'higher' if 'Increase' in selected_direction else 'lower'}</i> {actual_method}.</b></p>", unsafe_allow_html=True)
         else:
-            st.markdown(f"<p><b>The following studies show that an increase (or presence) in {actual_criteria} leads to <i>{'higher' if 'Increase' in selected_direction else 'lower'}</i> {actual_method}.</b></p>", unsafe_allow_html=True)
+            st.markdown(f"<p><b>The following {len(filtered_records)} studies show that an increase (or presence) in {actual_criteria} leads to <i>{'higher' if 'Increase' in selected_direction else 'lower'}</i> {actual_method}.</b></p>", unsafe_allow_html=True)
 
-        for count, record in enumerate(filtered_records, start=1):
+        # PAGINATION
+        RECORDS_PER_PAGE = 5
+        if len(filtered_records) > RECORDS_PER_PAGE:
+            if "results_page" not in st.session_state:
+                st.session_state.results_page = 0
+            
+            total_pages = (len(filtered_records) + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
+            
+            col_prev, col_page, col_next = st.columns([1, 2, 1])
+            with col_prev:
+                if st.button("◀ Previous", disabled=st.session_state.results_page == 0, key="prev_results_page"):
+                    st.session_state.results_page = max(0, st.session_state.results_page - 1)
+                    st.rerun()
+            with col_page:
+                st.write(f"**Page {st.session_state.results_page + 1} of {total_pages}**")
+            with col_next:
+                if st.button("Next ▶", disabled=st.session_state.results_page >= total_pages - 1, key="next_results_page"):
+                    st.session_state.results_page = min(total_pages - 1, st.session_state.results_page + 1)
+                    st.rerun()
+            
+            start_idx = st.session_state.results_page * RECORDS_PER_PAGE
+            end_idx = min(start_idx + RECORDS_PER_PAGE, len(filtered_records))
+            display_records = filtered_records[start_idx:end_idx]
+            st.write(f"**Showing {start_idx + 1}-{end_idx} of {len(filtered_records)} records**")
+        else:
+            display_records = filtered_records
+            if len(filtered_records) > 0:
+                st.write(f"**Showing all {len(filtered_records)} records**")
+
+        # DISPLAY EACH RECORD DIRECTLY - NO EXPANDER, NO HEADINGS
+        for count, record in enumerate(display_records, start=1):
             record_id, criteria, energy_method, direction, paragraph, user, status, scale, climate, location, building_use, approach, sample_size = record
             
             st.markdown("---")
             
-            # Display record information
+            # TWO COLUMN LAYOUT - WITH FIELD LABELS, NO EMOJIS
             col1, col2 = st.columns(2)
             
             with col1:
-                st.write(f"**Determinant:** {criteria}")
-                st.write(f"**Energy Output:** {energy_method}")
-                st.write(f"**Direction:** {direction}")
+                st.write(f"**{criteria}** → **{energy_method}** ({direction})")
                 if location:
                     st.write(f"**Location:** {location}")
                 if building_use:
@@ -5413,6 +5792,7 @@ def render_unified_search_interface(enable_editing=False):
             with col2:
                 st.write(f"**Scale:** {scale}")
                 if climate:
+                    # Format climate with color badge
                     formatted_climate_display = climate
                     if climate_options and isinstance(climate_options[0], tuple):
                         for option in climate_options:
@@ -5423,7 +5803,6 @@ def render_unified_search_interface(enable_editing=False):
                             climate_code_from_formatted = formatted.split(" - ")[0]
                             climate_code_clean = ''.join([c for c in climate_code_from_formatted if c.isalnum()])
                             if climate_code_clean.upper() == climate.upper():
-                                # REMOVE COUNT FROM DISPLAY
                                 if " [" in formatted:
                                     formatted_climate_display = formatted.split(" [")[0]
                                 else:
@@ -5431,15 +5810,55 @@ def render_unified_search_interface(enable_editing=False):
                                 break
                     
                     color = get_climate_color(climate)
-                    st.markdown(f"**Dominant Climate:** <span style='background-color: {color}; padding: 2px 8px; border-radius: 10px; color: black;'>{formatted_climate_display}</span>", unsafe_allow_html=True)
+                    st.markdown(f"**Climate:** <span style='background-color: {color}; padding: 2px 8px; border-radius: 10px; color: black;'>{formatted_climate_display}</span>", unsafe_allow_html=True)
                 
                 if approach:
                     st.write(f"**Approach:** {approach}")
                 if sample_size:
                     st.write(f"**Sample Size:** {sample_size}")
 
-            # Study content - always visible
-            display_study_content(paragraph, record_id)
+            # STUDY CONTENT - SELECTABLE, CLICKABLE LINKS, NO HEADING
+            # Highlight matching terms
+            highlighted_paragraph = paragraph
+            if actual_criteria:
+                import re
+                pattern = re.compile(re.escape(actual_criteria), re.IGNORECASE)
+                highlighted_paragraph = pattern.sub(
+                    lambda m: f"<span style='background-color: #FFFF00; font-weight: bold;'>{m.group()}</span>", 
+                    highlighted_paragraph
+                )
+            if actual_method:
+                pattern = re.compile(re.escape(actual_method), re.IGNORECASE)
+                highlighted_paragraph = pattern.sub(
+                    lambda m: f"<span style='background-color: #FFFF00; font-weight: bold;'>{m.group()}</span>", 
+                    highlighted_paragraph
+                )
+            
+            # Convert URLs to clickable links
+            paragraph_with_links = convert_urls_to_links(highlighted_paragraph)
+            
+            # Display as selectable text box - NOT LOCKED
+            st.markdown(
+                f'''
+                <div style="
+                    border: 1px solid #e0e0e0;
+                    padding: 15px;
+                    border-radius: 8px;
+                    background-color: #f9f9fb;  /* Light grey tint */
+                    max-height: 250px;
+                    overflow-y: auto;
+                    font-family: Arial, sans-serif;
+                    line-height: 1.5;
+                    font-size: 14px;
+                    user-select: text;
+                    -webkit-user-select: text;
+                    cursor: text;
+                ">
+                    {paragraph_with_links}
+                </div>
+                ''',
+                unsafe_allow_html=True
+            )
     
     elif actual_criteria or actual_method or selected_direction:
         st.warning("Please select a determinant, energy output, and direction to see results")
@@ -5555,21 +5974,24 @@ def render_spatialbuild_tab(enable_editing=False):
     
     render_unified_search_interface(enable_editing=enable_editing)
 
-# MAIN APP LAYOUT - CLEAN AND ORGANIZED
+# MAIN APP LAYOUT - UPDATED WITH PAPERS TAB
 if st.session_state.logged_in:
     if st.session_state.current_user == "admin":
-        # Admin view
-        tab_labels = ["SpatialBuild Energy", "Contribute", "Edit/Review"]
+        # Admin view with Papers tab
+        tab_labels = ["SpatialBuild Energy", "Papers", "Contribute", "Edit/Review"]
         tabs = st.tabs(tab_labels)
-        tab0, tab1, tab2 = tabs
+        tab0, tab1, tab2, tab3 = tabs
         
         with tab0:
             render_spatialbuild_tab(enable_editing=False)
         
         with tab1:
-            render_contribute_tab()
+            render_enhanced_papers_tab()
         
         with tab2:
+            render_contribute_tab()
+        
+        with tab3:
             # Check if we're currently editing a record in missing data
             if st.session_state.get("admin_editing_in_missing_data", False):
                 # Show a back button to return to missing data review
@@ -5590,32 +6012,38 @@ if st.session_state.logged_in:
         render_admin_sidebar()
 
     else:  
-        # Regular user view (keep as is)
-        tab_labels = ["SpatialBuild Energy", "Contribute", "Your Contributions"]
+        # Regular user view with Papers tab
+        tab_labels = ["SpatialBuild Energy", "Papers", "Contribute", "Your Contributions"]
         tabs = st.tabs(tab_labels)
-        tab0, tab1, tab2 = tabs
+        tab0, tab1, tab2, tab3 = tabs
         
         with tab0:
             render_spatialbuild_tab(enable_editing=False)
         
         with tab1:
-            render_contribute_tab()
+            render_enhanced_papers_tab()
         
         with tab2:
+            render_contribute_tab()
+        
+        with tab3:
             user_dashboard()
         
         render_user_sidebar()
 
 else:  
-    # Not logged in view (keep as is)
-    tab_labels = ["SpatialBuild Energy", "Contribute"]
+    # Not logged in view with Papers tab
+    tab_labels = ["SpatialBuild Energy", "Papers", "Contribute"]
     tabs = st.tabs(tab_labels)
-    tab0, tab1 = tabs
+    tab0, tab1, tab2 = tabs
     
     with tab0:
         render_spatialbuild_tab(enable_editing=False)
     
     with tab1:
+        render_enhanced_papers_tab()
+    
+    with tab2:
         render_contribute_tab()
     
     render_guest_sidebar()
