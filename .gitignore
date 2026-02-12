@@ -4,3 +4,4 @@ old
 myvenv
 sqlite3
 .env
+my_database.db

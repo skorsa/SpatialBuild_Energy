@@ -2094,7 +2094,7 @@ def display_study_content(paragraph, record_id):
             border: 1px solid #e0e0e0;
             padding: 15px;
             border-radius: 8px;
-            background-color: #f9f9fb;  /* Light grey tint */
+            background-color: #f8f9fa;
             max-height: 300px;
             overflow-y: auto;
             font-family: Arial, sans-serif;
@@ -4525,7 +4525,7 @@ def render_papers_tab():
             st.rerun()
     
     # ============= RESULTS HEADER AND CLEAR BUTTON =============
-    # Only show when there's a search query and results exist
+    # Only show when there's a search query
     if (st.session_state.get("papers_search_performed", False) and 
         st.session_state.get("papers_last_query", "") and 
         st.session_state.papers_current_results is not None):
@@ -4541,24 +4541,30 @@ def render_papers_tab():
         elif sort_order == "Determinant A-Z":
             results.sort(key=lambda x: str(x[2] or '').lower())
         
-        # Results header with inline clear button
-        if len(results) > 0:
-            col_header, col_clear = st.columns([4, 1])
-            with col_header:
+        # Results header with inline clear button - SHOW FOR BOTH RESULTS AND NO RESULTS
+        col_header, col_clear = st.columns([4, 1])
+        
+        with col_header:
+            if len(results) > 0:
                 st.success(f"Found {len(results)} paper(s) matching '{search_query}'")
-            with col_clear:
-                # Clear button positioned next to the success message
-                if st.button("✕ Clear", key=f"clear_btn_{st.session_state.get('papers_clear_counter', 0)}", 
-                           help="Clear search", use_container_width=False):
-                    st.session_state.papers_clear_counter = st.session_state.get('papers_clear_counter', 0) + 1
-                    st.session_state.papers_search_query = ""
-                    st.session_state.papers_current_results = []
-                    st.session_state.papers_search_performed = False
-                    st.session_state.papers_search_triggered = False
-                    st.session_state.papers_current_page = 0
-                    st.session_state.papers_last_query = ""
-                    st.rerun()
-            
+            else:
+                st.warning(f"No results found for '{search_query}'")
+        
+        with col_clear:
+            # Clear button positioned next to the message
+            if st.button("✕ Clear", key=f"clear_btn_{st.session_state.get('papers_clear_counter', 0)}", 
+                       help="Clear search", use_container_width=False):
+                st.session_state.papers_clear_counter = st.session_state.get('papers_clear_counter', 0) + 1
+                st.session_state.papers_search_query = ""
+                st.session_state.papers_current_results = []
+                st.session_state.papers_search_performed = False
+                st.session_state.papers_search_triggered = False
+                st.session_state.papers_current_page = 0
+                st.session_state.papers_last_query = ""
+                st.rerun()
+        
+        # Only show results and pagination if there are results
+        if len(results) > 0:
             # ============= TOP PAGINATION =============
             PAPERS_PER_PAGE = 5
             total_pages = (len(results) + PAPERS_PER_PAGE - 1) // PAPERS_PER_PAGE
@@ -4630,14 +4636,13 @@ def render_papers_tab():
                 
                 paragraph_with_links = convert_urls_to_links(highlighted_paragraph)
                 
-                # STUDY CONTENT
                 st.markdown(
                     f'''
                     <div style="
                         border: 1px solid #e0e0e0;
                         padding: 15px;
                         border-radius: 8px;
-                        background-color: #f9f9fb;  /* Light grey tint */
+                        background-color: #f9f9fb;
                         max-height: 250px;
                         overflow-y: auto;
                         font-family: Arial, sans-serif;
