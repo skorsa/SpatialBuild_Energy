@@ -48,7 +48,6 @@ if "papers_page" not in st.session_state:
     st.session_state.papers_page = 0
 
 
-# ADD THIS FOR EDIT FUNCTIONALITY:
 if "admin_editing_record_id" not in st.session_state:
     st.session_state.admin_editing_record_id = None    
 
@@ -96,6 +95,26 @@ def check_button_clicks():
     for btn, timestamp in st.session_state.button_clicks.items():
         st.sidebar.write(f"{btn}: {datetime.fromtimestamp(timestamp).strftime('%H:%M:%S')}")
 
+def sanitize_metadata_text(text):
+    """Remove markdown formatting characters from metadata text"""
+    if not text or pd.isna(text):
+        return text
+    
+    text = str(text)
+    
+    # Remove markdown formatting characters
+    # Bold: **text** or __text__
+    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)  # Remove ** **
+    text = re.sub(r'__(.*?)__', r'\1', text)      # Remove __ __
+    
+    # Italic: *text* or _text_
+    text = re.sub(r'\*(.*?)\*', r'\1', text)      # Remove * *
+    text = re.sub(r'_(.*?)_', r'\1', text)        # Remove _ _
+    
+    # Remove any remaining asterisks that might be hanging
+    text = text.replace('**', '').replace('*', '')
+    
+    return text.strip()
 
 def query_approved_criteria(conn):
         cursor = conn.cursor()
@@ -216,17 +235,27 @@ def contribute():
                 new_scale = st.text_input("Enter new scale", key="contribute_new_scale")
 
         with col_2:
+            # Get ONLY valid Köppen climate options - NO "Add new climate" option
             climate_options_data = query_dominant_climate_options(conn)
             climate_options = [formatted for formatted, color in climate_options_data]
+            
+            # REMOVED "Add new climate" - only valid Köppen codes
             selected_climate = st.selectbox(
                 "Climate",
-                options=["Select climate"] + climate_options + ["Add new climate"],
+                options=["Select climate"] + climate_options,  # No "Add new climate"
                 key="contribute_climate"
             )
             
-            new_climate = ""
-            if selected_climate == "Add new climate":
-                new_climate = st.text_input("Enter new climate code", key="contribute_new_climate")
+            # NO new_climate input field - removed entirely
+            final_climate = None
+            if selected_climate != "Select climate":
+                # Clean climate code if it's formatted
+                if " - " in selected_climate:
+                    final_climate = selected_climate.split(" - ")[0]
+                    # Remove emoji if present
+                    final_climate = ''.join([c for c in final_climate if c.isalnum()])
+                else:
+                    final_climate = selected_climate
 
         with col_3:
             location = st.text_input("Location (optional)", key="contribute_location", 
@@ -277,13 +306,17 @@ def contribute():
 
                 # Prepare scale and climate values
                 final_scale = new_scale if selected_scale == "Add new scale" else selected_scale
-                final_climate = new_climate if selected_climate == "Add new climate" else selected_climate
                 
-                # Clean climate code if it's formatted
-                if final_climate and " - " in final_climate:
-                    final_climate = final_climate.split(" - ")[0]
-                    # Remove emoji if present
-                    final_climate = ''.join([c for c in final_climate if c.isalnum()])
+                # Climate - only from dropdown, no free text
+                if selected_climate != "Select climate":
+                    if " - " in selected_climate:
+                        final_climate = selected_climate.split(" - ")[0]
+                        # Remove emoji if present
+                        final_climate = ''.join([c for c in final_climate if c.isalnum()])
+                    else:
+                        final_climate = selected_climate
+                else:
+                    final_climate = None  # Don't store "Select climate" as a value
 
                 # Prepare building use value
                 final_building_use = new_building_use if selected_building_use == "Add new building use" else selected_building_use
@@ -307,7 +340,7 @@ def contribute():
                     "pending",
                     st.session_state.current_user,
                     final_scale if final_scale != "Select scale" else "Awaiting data",
-                    final_climate if final_climate != "Select climate" else "Awaiting data",
+                    final_climate,  # Now properly handles None
                     location if location else None,
                     final_building_use if final_building_use != "Select building use" else None,
                     final_approach,
@@ -972,7 +1005,7 @@ def display_admin_matching_review_fixed(matched_records, unmatched_studies, exce
     
     # Select All checkbox for exact matches only
     select_all = st.checkbox(
-        f"✅ Select All {len(exact_matches)} Exact Matches", 
+        f"Select All {len(exact_matches)} Exact Matches", 
         key=f"select_all_{session_id}",
         value=st.session_state[select_all_key]
     )
@@ -991,7 +1024,7 @@ def display_admin_matching_review_fixed(matched_records, unmatched_studies, exce
     st.markdown("---")
     col1, col2 = st.columns([3, 1])
     with col1:
-        if st.button("🚀 IMPORT SELECTED EXACT MATCHES", type="primary", use_container_width=True, key=f"import_main_{session_id}"):
+        if st.button("IMPORT SELECTED EXACT MATCHES", type="primary", use_container_width=True, key=f"import_main_{session_id}"):
             # Collect confirmed exact matches
             confirmed_matches = []
             confirmations = st.session_state[confirmations_key]
@@ -1021,7 +1054,7 @@ def display_admin_matching_review_fixed(matched_records, unmatched_studies, exce
     st.markdown("---")
     
     # Pagination for exact matches
-    MATCHES_PER_PAGE = 5
+    MATCHES_PER_PAGE = 10
     total_pages = (len(exact_matches) + MATCHES_PER_PAGE - 1) // MATCHES_PER_PAGE
     
     if total_pages > 1:
@@ -1261,7 +1294,7 @@ def get_climate_code_from_formatted(formatted_climate):
     return formatted_climate.split(' - ')[0]
 
 def query_dominant_climate_options(conn):
-    """Get unique dominant climate values with descriptions and color glyphs"""
+    """Get ONLY valid Köppen climate classifications with descriptions and color glyphs"""
     cursor = conn.cursor()
     cursor.execute('''
         SELECT DISTINCT climate FROM energy_data 
@@ -1332,17 +1365,43 @@ def query_dominant_climate_options(conn):
         '#686964': '⬛',  # Dark Gray
     }
     
-    # Filter to ONLY include the specified Köppen classifications with color glyphs
+    # Filter to ONLY include valid Köppen classifications
     valid_climates = []
+    seen_codes = set()
+    
     for climate in climates:
-        if climate in koppen_climates_with_descriptions:
-            # Get color for this climate
-            color = get_climate_color(climate)
-            # Get corresponding emoji
-            emoji = color_to_emoji.get(color, '⬜')  # Default to white square
-            # Format as "🟦 Cfa - Humid Subtropical"
-            formatted_climate = f"{emoji} {climate} - {koppen_climates_with_descriptions[climate]}"
-            valid_climates.append((climate, formatted_climate, color))
+        if not climate or pd.isna(climate) or str(climate).strip() == '':
+            continue
+            
+        # Clean the climate code
+        climate_clean = str(climate).strip()
+        if " - " in climate_clean:
+            climate_clean = climate_clean.split(" - ")[0]
+        climate_clean = ''.join([c for c in climate_clean if c.isalnum()])
+        
+        # Skip if empty after cleaning
+        if not climate_clean:
+            continue
+            
+        # Check if it's a valid Köppen code (case-insensitive)
+        if climate_clean.upper() in koppen_climates_with_descriptions:
+            if climate_clean not in seen_codes:  # Avoid duplicates
+                seen_codes.add(climate_clean)
+                # Use the correct description based on uppercase lookup
+                description = koppen_climates_with_descriptions[climate_clean.upper()]
+                color = get_climate_color(climate_clean)
+                emoji = color_to_emoji.get(color, '⬜')
+                formatted_climate = f"{emoji} {climate_clean} - {description}"
+                valid_climates.append((climate_clean, formatted_climate, color))
+    
+    # If no valid climates found in database, return the full list of all Köppen codes
+    if not valid_climates:
+        for climate_code, description in koppen_climates_with_descriptions.items():
+            climate_clean = climate_code
+            color = get_climate_color(climate_code)
+            emoji = color_to_emoji.get(color, '⬜')
+            formatted_climate = f"{emoji} {climate_code} - {description}"
+            valid_climates.append((climate_code, formatted_climate, color))
     
     # Sort by climate code
     valid_climates.sort(key=lambda x: x[0])
@@ -1845,7 +1904,7 @@ def review_missing_data():
                 return
             
             # Display results with pagination
-            PER_PAGE = 5
+            PER_PAGE = 10
             total_pages = (len(records) + PER_PAGE - 1) // PER_PAGE
             
             if "missing_data_page" not in st.session_state:
@@ -2568,7 +2627,7 @@ def display_admin_matching_review(matched_records, unmatched_studies, excel_df=N
     st.markdown("---")
     
     # PAGINATION
-    MATCHES_PER_PAGE = 5
+    MATCHES_PER_PAGE = 10
     total_pages = (len(filtered_matches) + MATCHES_PER_PAGE - 1) // MATCHES_PER_PAGE
     
     # Page navigation
@@ -3485,8 +3544,6 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False, cle
             'sample_size': record[12]
         }
     
-    #st.subheader(f"✏️ Editing Record {record_id}")
-    
     # Edit form layout - ALL KEYS NOW INCLUDE SESSION ID
     col1, col2 = st.columns(2)
     
@@ -3550,12 +3607,14 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False, cle
                                            key=f"unified_new_building_use_{record_id}_{session_id}")
     
     with col2:
-        # Climate (editable with formatted dropdown)
+        # Climate - EDITABLE ONLY FROM PREDEFINED OPTIONS - NO FREE TEXT
         try:
             climate_options_raw = query_dominant_climate_options(conn)
-            climate_options_list = ["Select climate"] + [formatted for formatted, color in climate_options_raw] + ["Add new climate"]
+            # Extract just the formatted strings for display
+            climate_options_list = ["Select climate"] + [formatted for formatted, color in climate_options_raw]
+            # NO "Add new climate" option
         except:
-            climate_options_list = ["Select climate", "Add new climate"]
+            climate_options_list = ["Select climate"]
         
         # Find current climate in options
         current_climate = record_data['climate'] if record_data['climate'] else "Select climate"
@@ -3563,25 +3622,26 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False, cle
         
         # Try to match the climate (handle both code only and formatted strings)
         for i, opt in enumerate(climate_options_list):
-            opt_clean = opt.split(" - ")[0] if " - " in opt else opt
-            opt_clean = ''.join([c for c in opt_clean if c.isalnum()])
+            if opt == "Select climate":
+                continue
+            opt_code = opt.split(" - ")[0] if " - " in opt else opt
+            opt_code = ''.join([c for c in opt_code if c.isalnum()])
             current_clean = current_climate.split(" - ")[0] if " - " in current_climate else current_climate
             current_clean = ''.join([c for c in current_clean if c.isalnum()])
             
-            if current_clean and current_clean.upper() == opt_clean.upper():
+            if current_clean and current_clean.upper() == opt_code.upper():
                 current_climate_index = i
                 break
         
-        selected_climate = st.selectbox("Climate", 
-                                        options=climate_options_list,
-                                        index=current_climate_index,
-                                        key=f"unified_climate_{record_id}_{session_id}")
+        selected_climate = st.selectbox(
+            "Climate", 
+            options=climate_options_list,
+            index=current_climate_index,
+            key=f"unified_climate_{record_id}_{session_id}"
+        )
         
-        new_climate = ""
-        if selected_climate == "Add new climate":
-            new_climate = st.text_input("Enter new climate code", 
-                                        value="", 
-                                        key=f"unified_new_climate_{record_id}_{session_id}")
+        # NO new_climate input - removed entirely
+        # NO free text entry for climate
         
         # Approach (editable with specific options)
         approach_options = ["Select approach", "Top-down", "Bottom-up", "Hybrid (combined top-down and bottom-up)"]
@@ -3627,13 +3687,14 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False, cle
             final_scale = new_scale if selected_scale == "Add new scale" else (
                 selected_scale if selected_scale != "Select scale" else record_data['scale'])
             
-            final_climate = new_climate if selected_climate == "Add new climate" else (
-                selected_climate if selected_climate != "Select climate" else record_data['climate'])
-            
-            # Clean climate code if formatted
-            if final_climate and " - " in str(final_climate):
-                final_climate = final_climate.split(" - ")[0]
-                final_climate = ''.join([c for c in final_climate if c.isalnum()])
+            # Climate - only from dropdown, no free text
+            final_climate = None
+            if selected_climate != "Select climate":
+                if " - " in selected_climate:
+                    final_climate = selected_climate.split(" - ")[0]
+                    final_climate = ''.join([c for c in final_climate if c.isalnum()])
+                else:
+                    final_climate = selected_climate
             
             # Prepare building use value
             final_building_use = new_building_use if selected_building_use == "Add new building use" else (
@@ -3656,7 +3717,7 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False, cle
                 new_direction,
                 new_paragraph,
                 final_scale,
-                final_climate,
+                final_climate,  # Now properly handles None
                 new_location,
                 final_building_use,
                 final_approach,
@@ -3906,7 +3967,46 @@ def manage_scale_climate_data():
                                 new_direction = st.selectbox("Direction", ["Increase", "Decrease"], 
                                                            index=0 if edit_record[2] == "Increase" else 1)
                                 new_scale = st.text_input("Scale", value=edit_record[6] or "")
-                                new_climate = st.text_input("Climate", value=edit_record[7] or "")
+                                
+                                # ============= FIXED CLIMATE DROPDOWN =============
+                                # Get ONLY valid Köppen climate options
+                                climate_options_raw = query_dominant_climate_options(conn)
+                                climate_options_list = ["Select climate"] + [formatted for formatted, color in climate_options_raw]
+                                
+                                # Find current climate in options
+                                current_climate = edit_record[7] if edit_record[7] else "Select climate"
+                                current_climate_index = 0
+                                
+                                # Try to match the climate (handle both code only and formatted strings)
+                                for i, opt in enumerate(climate_options_list):
+                                    if opt == "Select climate":
+                                        continue
+                                    opt_code = opt.split(" - ")[0] if " - " in opt else opt
+                                    opt_code = ''.join([c for c in opt_code if c.isalnum()])
+                                    current_clean = current_climate.split(" - ")[0] if " - " in current_climate else current_climate
+                                    current_clean = ''.join([c for c in current_clean if c.isalnum()])
+                                    
+                                    if current_clean and current_clean.upper() == opt_code.upper():
+                                        current_climate_index = i
+                                        break
+                                
+                                selected_climate = st.selectbox(
+                                    "Climate", 
+                                    options=climate_options_list,
+                                    index=current_climate_index,
+                                    key=f"admin_climate_{record_id}"
+                                )
+                                
+                                # Extract clean climate code for saving
+                                new_climate = None
+                                if selected_climate != "Select climate":
+                                    if " - " in selected_climate:
+                                        new_climate = selected_climate.split(" - ")[0]
+                                        new_climate = ''.join([c for c in new_climate if c.isalnum()])
+                                    else:
+                                        new_climate = selected_climate
+                                # ============= END FIXED CLIMATE DROPDOWN =============
+                                
                                 new_location = st.text_input("Location", value=edit_record[8] or "")
                             
                             with col2:
@@ -3927,9 +4027,20 @@ def manage_scale_climate_data():
                                         scale = ?, climate = ?, location = ?, building_use = ?,
                                         approach = ?, sample_size = ?, status = ?
                                     WHERE id = ?
-                                ''', (new_criteria, new_energy, new_direction, new_paragraph,
-                                     new_scale, new_climate, new_location, new_building_use,
-                                     new_approach, new_sample_size, new_status, record_id))
+                                ''', (
+                                    new_criteria, 
+                                    new_energy, 
+                                    new_direction, 
+                                    new_paragraph,
+                                    new_scale, 
+                                    new_climate,  # Now properly handles None
+                                    new_location, 
+                                    new_building_use,
+                                    new_approach, 
+                                    new_sample_size, 
+                                    new_status, 
+                                    record_id
+                                ))
                                 conn.commit()
                                 st.session_state.admin_selected_edit_id = None
                                 st.success("✅ Record updated successfully!")
@@ -3939,7 +4050,6 @@ def manage_scale_climate_data():
             st.info("👆 Click 'Search' to load records")
         else:
             st.info("👆 Select a determinant, energy output, and direction, then click Search")
-
 def review_pending_data():
     global conn
     st.subheader("Review Pending Data Submissions")
@@ -4372,13 +4482,10 @@ def query_all_papers(conn):
     return papers
 
 def render_papers_tab():
-    """Render the Papers tab with search functionality - LOADS NOTHING UNTIL SEARCH"""
-    st.title("Research Papers Database")
+    """Render the Studies tab with search functionality - LOADS NOTHING UNTIL SEARCH"""
+    st.title("Research Studies Database")
     
-    st.markdown("""
-    Browse all studies in the SpatialBuild Energy database. 
-    Use the search box below to filter papers by title, author, determinant, climate code, or any other text.
-    """)
+    st.markdown("""Use the search box below to browse all studies in the SpatialBuild Energy database.""")
     
     st.markdown("---")
     
@@ -4423,11 +4530,11 @@ def render_papers_tab():
     
     # ============= SEARCH INTERFACE =============
     
-    # Search row
-    col1, col2 = st.columns([4, 1.2])
+    # Search row with two columns
+    col1, col2 = st.columns([3, 2])
     
     with col1:
-        st.markdown("**Search Papers**")
+        st.markdown("**Search Studies**")
         
         # Function to handle search on Enter
         def on_search_change():
@@ -4445,7 +4552,7 @@ def render_papers_tab():
         
         # The text input
         search_query = st.text_input(
-            "Search papers",
+            "Search studies",
             placeholder="Type to search by title, author, determinant, climate...",
             key="papers_search_input",
             label_visibility="collapsed",
@@ -4457,7 +4564,12 @@ def render_papers_tab():
         st.markdown("**Sort by**")
         sort_order = st.selectbox(
             "Sort results by",
-            ["Newest first", "Oldest first", "Determinant A-Z"],
+            ["Determinant (A-Z)", 
+             "Location (A-Z)", 
+             "Building Use (A-Z)", 
+             "Scale (A-Z)", 
+             "Climate (A-Z)", 
+             "Approach (A-Z)"],
             key="papers_sort",
             label_visibility="collapsed"
         )
@@ -4533,20 +4645,28 @@ def render_papers_tab():
         results = st.session_state.papers_current_results
         search_query = st.session_state.get("papers_last_query", "")
         
-        # Sort results
-        if sort_order == "Newest first":
-            results.sort(key=lambda x: x[0], reverse=True)
-        elif sort_order == "Oldest first":
-            results.sort(key=lambda x: x[0])
-        elif sort_order == "Determinant A-Z":
-            results.sort(key=lambda x: str(x[2] or '').lower())
+        # Sort results based on selected option
+        if sort_order == "Determinant (A-Z)":
+            results.sort(key=lambda x: str(x[2] or '').lower())  # criteria
+        elif sort_order == "Location (A-Z)":
+            results.sort(key=lambda x: str(x[7] or '').lower())  # location
+        elif sort_order == "Building Use (A-Z)":
+            results.sort(key=lambda x: str(x[8] or '').lower())  # building_use
+        elif sort_order == "Scale (A-Z)":
+            results.sort(key=lambda x: str(x[5] or '').lower())  # scale
+        elif sort_order == "Climate (A-Z)":
+            results.sort(key=lambda x: str(x[6] or '').lower())  # climate
+        elif sort_order == "Approach (A-Z)":
+            results.sort(key=lambda x: str(x[9] or '').lower())  # approach
         
         # Results header with inline clear button - SHOW FOR BOTH RESULTS AND NO RESULTS
         col_header, col_clear = st.columns([4, 1])
         
         with col_header:
-            if len(results) > 0:
-                st.success(f"Found {len(results)} paper(s) matching '{search_query}'")
+            if len(results) == 1:
+                st.success(f"Found {len(results)} study matching '{search_query}'")
+            elif len(results) > 1:
+                st.success(f"Found {len(results)} studies matching '{search_query}'")
             else:
                 st.warning(f"No results found for '{search_query}'")
         
@@ -4566,7 +4686,7 @@ def render_papers_tab():
         # Only show results and pagination if there are results
         if len(results) > 0:
             # ============= TOP PAGINATION =============
-            PAPERS_PER_PAGE = 5
+            PAPERS_PER_PAGE = 10
             total_pages = (len(results) + PAPERS_PER_PAGE - 1) // PAPERS_PER_PAGE
             
             if total_pages > 1:
@@ -4607,18 +4727,57 @@ def render_papers_tab():
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    st.write(f"**{criteria}** → **{energy_method}** ({direction})")
+                    clean_criteria = sanitize_metadata_text(criteria)
+                    clean_energy_method = sanitize_metadata_text(energy_method)
+                    
+                    st.write(f"**{clean_criteria}** → **{clean_energy_method}** ({direction})")
                     st.write(f"**Record ID:** {record_id}")
                     if location:
-                        st.write(f"**Location:** {location}")
+                        st.write(f"**Location:** {sanitize_metadata_text(location)}")
                     if building_use:
-                        st.write(f"**Building Use:** {building_use}")
-                
+                        st.write(f"**Building Use:** {sanitize_metadata_text(building_use)}")
+                                
                 with col2:
                     st.write(f"**Scale:** {scale if scale else 'Not specified'}")
                     if climate:
                         color = get_climate_color(climate)
-                        st.markdown(f"**Climate:** <span style='background-color: {color}; padding: 2px 8px; border-radius: 10px; color: black;'>{climate}</span>", unsafe_allow_html=True)
+                        
+                        # Define climate descriptions (same as above)
+                        climate_descriptions = {
+                            'Af': 'Tropical Rainforest', 'Am': 'Tropical Monsoon', 'Aw': 'Tropical Savanna',
+                            'BWh': 'Hot Desert', 'BWk': 'Cold Desert', 'BSh': 'Hot Semi-arid', 'BSk': 'Cold Semi-arid',
+                            'Cfa': 'Humid Subtropical', 'Cfb': 'Oceanic', 'Cfc': 'Subpolar Oceanic',
+                            'Csa': 'Hot-summer Mediterranean', 'Csb': 'Warm-summer Mediterranean',
+                            'Cwa': 'Monsoon-influenced Humid Subtropical',
+                            'Dfa': 'Hot-summer Humid Continental', 'Dfb': 'Warm-summer Humid Continental', 
+                            'Dfc': 'Subarctic', 'Dfd': 'Extremely Cold Subarctic',
+                            'Dwa': 'Monsoon-influenced Hot-summer Humid Continental',
+                            'Dwb': 'Monsoon-influenced Warm-summer Humid Continental',
+                            'Dwc': 'Monsoon-influenced Subarctic',
+                            'Dwd': 'Monsoon-influenced Extremely Cold Subarctic',
+                            'ET': 'Tundra', 'EF': 'Ice Cap',
+                            'Var': 'Varies / Multiple Climates'
+                        }
+                        
+                        # Get the climate code (handle both raw codes and formatted strings)
+                        climate_code = climate
+                        if " - " in str(climate):
+                            climate_code = climate.split(" - ")[0]
+                        climate_code = ''.join([c for c in str(climate_code) if c.isalnum()])
+                        
+                        # Get description
+                        description = climate_descriptions.get(climate_code, '')
+                        
+                        # Format display text
+                        if description:
+                            climate_display = f"{climate_code} - {description}"
+                        else:
+                            climate_display = climate_code
+                            
+                        st.markdown(
+                            f"**Climate:** <span style='background-color: {color}; padding: 2px 8px; border-radius: 10px; color: black;'>{climate_display}</span>", 
+                            unsafe_allow_html=True
+                        )
                     if approach:
                         st.write(f"**Approach:** {approach}")
                     if sample_size:
@@ -4687,12 +4846,12 @@ def render_papers_tab():
     
     # Initial state - no search performed yet
     elif not st.session_state.papers_search_performed:
-        st.info("Enter a search term above and press Enter to find papers in the database.")
+        st.info("Enter a search term above and press Enter to find studies in the database.")
     
     # Empty search state - show nothing
 
 def render_enhanced_papers_tab():
-    """Enhanced Papers tab - NO statistics for admin to prevent slowdown"""
+    """Enhanced Studies tab - NO statistics for admin to prevent slowdown"""
     
     # Check if current user is admin
     is_admin = st.session_state.get("user_role") == "admin"
@@ -4702,7 +4861,7 @@ def render_enhanced_papers_tab():
         render_papers_tab()
     else:
         # Regular users get both tabs
-        view_tab1, view_tab2 = st.tabs(["Search Papers", "Statistics"])
+        view_tab1, view_tab2 = st.tabs(["Search Studies", "Statistics"])
         
         with view_tab1:
             render_papers_tab()
@@ -4735,23 +4894,58 @@ def render_enhanced_papers_tab():
             stats = cursor.fetchone()
             
             # Display statistics in columns
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)
             with col1:
-                st.metric("Total Papers", stats[0] or 0)
+                st.metric("Total Studies", stats[0] or 0)
                 st.metric("Unique Determinants", stats[1] or 0)
                 st.metric("Unique Energy Outputs", stats[2] or 0)
             
             with col2:
                 st.metric("Unique Locations", stats[3] or 0)
                 st.metric("Unique Climates", stats[4] or 0)
-                st.metric("Unique Contributors", stats[5] or 0)
             
-            with col3:
-                st.metric("Approved Papers", stats[6] or 0)
-                st.metric("Pending Review", stats[7] or 0)
+            # Show climate code distribution with colors and descriptions
+            st.subheader("Climate Code Distribution")
             
-            # Show climate code distribution
-            st.subheader("🌍 Climate Code Distribution")
+            # Define climate descriptions with added Dwa and Cwa
+            climate_descriptions = {
+                # Tropical Climates
+                'Af': 'Tropical Rainforest', 
+                'Am': 'Tropical Monsoon', 
+                'Aw': 'Tropical Savanna',
+                
+                # Arid Climates
+                'BWh': 'Hot Desert', 
+                'BWk': 'Cold Desert', 
+                'BSh': 'Hot Semi-arid', 
+                'BSk': 'Cold Semi-arid',
+                
+                # Temperate Climates
+                'Cfa': 'Humid Subtropical', 
+                'Cfb': 'Oceanic', 
+                'Cfc': 'Subpolar Oceanic',
+                'Csa': 'Hot-summer Mediterranean', 
+                'Csb': 'Warm-summer Mediterranean',
+                'Cwa': 'Monsoon-influenced Humid Subtropical',  # Added Cwa
+                
+                # Continental Climates
+                'Dfa': 'Hot-summer Humid Continental', 
+                'Dfb': 'Warm-summer Humid Continental', 
+                'Dfc': 'Subarctic', 
+                'Dfd': 'Extremely Cold Subarctic',
+                'Dwa': 'Monsoon-influenced Hot-summer Humid Continental',  # Added Dwa
+                'Dwb': 'Monsoon-influenced Warm-summer Humid Continental',
+                'Dwc': 'Monsoon-influenced Subarctic',
+                'Dwd': 'Monsoon-influenced Extremely Cold Subarctic',
+                
+                # Polar Climates
+                'ET': 'Tundra', 
+                'EF': 'Ice Cap',
+                
+                # Special cases
+                'Var': 'Varies / Multiple Climates'  # Added Var for varied climates
+            }
+            
             cursor.execute('''
                 SELECT climate, COUNT(*) as count
                 FROM energy_data 
@@ -4767,21 +4961,46 @@ def render_enhanced_papers_tab():
                 AND status NOT IN ("rejected")
                 GROUP BY climate
                 ORDER BY count DESC
-                LIMIT 10
+                LIMIT 15
             ''')
             
             top_climates = cursor.fetchall()
+            
+            # Create a DataFrame for better display
+            climate_data = []
             for climate, count in top_climates:
-                # Extract clean code for display
-                if climate and " - " in str(climate):
-                    climate_code = str(climate).split(" - ")[0]
-                    climate_code = ''.join([c for c in climate_code if c.isalnum()])
-                    st.write(f"- **{climate_code}**: {count} studies")
-                else:
-                    st.write(f"- **{climate}**: {count} studies")
+                # Extract clean climate code
+                climate_code = climate
+                if " - " in str(climate):
+                    climate_code = climate.split(" - ")[0]
+                climate_code = ''.join([c for c in str(climate_code) if c.isalnum()])
+                
+                # Get description and color
+                description = climate_descriptions.get(climate_code, '')
+                color = get_climate_color(climate_code)
+                
+                climate_data.append({
+                    'code': climate_code,
+                    'description': description,
+                    'count': count,
+                    'color': color
+                })
+            
+            # Display as colored badges with descriptions
+            for item in climate_data:
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    # Create colored badge with code and description
+                    display_text = f"{item['code']} - {item['description']}" if item['description'] else item['code']
+                    st.markdown(
+                        f"<span style='background-color: {item['color']}; padding: 2px 8px; border-radius: 10px; color: black; font-weight: 500;'>{display_text}</span>", 
+                        unsafe_allow_html=True
+                    )
+                with col2:
+                    st.write(f"**{item['count']}** studies")
             
             # Show top determinants
-            st.subheader("🔝 Most Studied Determinants")
+            st.subheader("Most Studied Determinants")
             cursor.execute('''
                 SELECT criteria, COUNT(*) as count
                 FROM energy_data 
@@ -4965,15 +5184,28 @@ def query_scale_options_with_counts(conn, criteria=None, energy_method=None, dir
 
 # Also update the query_climate_options_with_counts function to handle case properly:
 def query_climate_options_with_counts(conn, criteria=None, energy_method=None, direction=None, selected_scales=None):
-    """Get climate options with counts - show ALL when no specific filters are selected"""
+    """Get ONLY valid Köppen climate options with counts - FILTER OUT invalid codes"""
     cursor = conn.cursor()
     
-    query = '''
+    # Define valid Köppen codes for filtering
+    valid_koppen_codes = [
+        'Af', 'Am', 'Aw',  # Tropical
+        'BWh', 'BWk', 'BSh', 'BSk',  # Arid
+        'Cfa', 'Cfb', 'Cfc', 'Csa', 'Csb',  # Temperate
+        'Dfa', 'Dfb', 'Dfc', 'Dfd',  # Continental
+        'ET', 'EF'  # Polar
+    ]
+    
+    # Create case-insensitive condition for valid codes
+    valid_conditions = ' OR '.join([f'UPPER(climate) = UPPER(?)' for _ in valid_koppen_codes])
+    
+    query = f'''
         SELECT climate, COUNT(*) as count
         FROM energy_data 
         WHERE climate IS NOT NULL 
           AND climate != '' 
           AND climate != 'Awaiting data'
+          AND ({valid_conditions})
           AND paragraph IS NOT NULL 
           AND paragraph != '' 
           AND paragraph != '0' 
@@ -4982,9 +5214,9 @@ def query_climate_options_with_counts(conn, criteria=None, energy_method=None, d
           AND LENGTH(TRIM(paragraph)) > 0
           AND status NOT IN ("pending", "rejected")
     '''
-    params = []
+    params = valid_koppen_codes.copy()
     
-    # Only apply filters if they're actually selected (not "Select a...")
+    # Apply other filters
     if criteria and criteria != "Select a determinant":
         query += ' AND criteria = ?'
         params.append(criteria)
@@ -4994,12 +5226,10 @@ def query_climate_options_with_counts(conn, criteria=None, energy_method=None, d
         params.append(energy_method)
     
     if direction and direction not in ["Select a direction", None]:
-        # Handle both formatted and clean direction
         clean_direction = direction.split(" [")[0] if " [" in direction else direction
         query += ' AND direction = ?'
         params.append(clean_direction)
     
-    # Only apply scale filter if specific scales are selected (not "All")
     if selected_scales and selected_scales != ["All"]:
         placeholders = ','.join('?' * len(selected_scales))
         query += f' AND scale IN ({placeholders})'
@@ -5010,7 +5240,7 @@ def query_climate_options_with_counts(conn, criteria=None, energy_method=None, d
     cursor.execute(query, params)
     results = cursor.fetchall()
     
-    # Define Köppen climate classifications with descriptions - use UPPERCASE for lookup
+    # Define Köppen climate classifications with descriptions
     koppen_climates_with_descriptions = {
         'AF': 'Tropical Rainforest', 'AM': 'Tropical Monsoon', 'AW': 'Tropical Savanna',
         'BWH': 'Hot Desert', 'BWK': 'Cold Desert', 'BSH': 'Hot Semi-arid', 'BSK': 'Cold Semi-arid',
@@ -5033,40 +5263,36 @@ def query_climate_options_with_counts(conn, criteria=None, energy_method=None, d
         '#AFB0AB': '⬜', '#686964': '⬛',
     }
     
-    # Format climate codes with descriptions and colors
-    valid_climates = []
+    # Create a dictionary of counts
+    count_dict = {}
     for climate, count in results:
-        if not climate or str(climate).strip() == '':
-            continue
-            
-        # Keep original case for display, use uppercase for lookup
-        climate_original = str(climate).strip()
-        climate_upper = climate_original.upper()
-        
-        # Check if it's a valid Köppen code
-        if climate_upper in koppen_climates_with_descriptions:
-            # Get color for this climate
-            color = get_climate_color(climate_original)
-            # Get corresponding emoji
-            emoji = color_to_emoji.get(color, '⬜')
-            # Format as "🟦 Csa - Hot-summer Mediterranean [5]" - using original case
-            description = koppen_climates_with_descriptions[climate_upper]
-            formatted_climate = f"{emoji} {climate_original} - {description} [{count}]"
-            valid_climates.append((climate_original, formatted_climate, color, count))
-        else:
-            # For non-Köppen codes, still show them but without description
-            color = '#CCCCCC'  # Default gray
-            emoji = '⬜'
-            formatted_climate = f"{emoji} {climate_original} [{count}]"
-            valid_climates.append((climate_original, formatted_climate, color, count))
+        if climate and str(climate).strip():
+            climate_clean = climate
+            if " - " in str(climate):
+                climate_clean = climate.split(" - ")[0]
+            climate_clean = ''.join([c for c in str(climate_clean) if c.isalnum()])
+            if climate_clean.upper() in koppen_climates_with_descriptions:
+                count_dict[climate_clean] = count
     
-    # Sort by climate code (case-insensitive)
-    valid_climates.sort(key=lambda x: x[0].upper())
+    # Format all valid Köppen codes with their counts
+    valid_climates = []
+    for climate_code in valid_koppen_codes:
+        climate_upper = climate_code.upper()
+        if climate_upper in koppen_climates_with_descriptions:
+            description = koppen_climates_with_descriptions[climate_upper]
+            color = get_climate_color(climate_code)
+            emoji = color_to_emoji.get(color, '⬜')
+            count = count_dict.get(climate_code, 0)
+            formatted_climate = f"{emoji} {climate_code} - {description} [{count}]"
+            valid_climates.append((climate_code, formatted_climate, color, count))
+    
+    # Sort by climate code
+    valid_climates.sort(key=lambda x: x[0])
     return [(formatted, color, count) for _, formatted, color, count in valid_climates]
 
 # Also update the get_climate_color function to handle case-insensitive:
 def get_climate_color(climate_code):
-    """Get color for climate code - handle mixed case"""
+    """Get color for climate code - handle mixed case and special cases"""
     # Extract code if it's formatted as "Code - Description"
     if " - " in str(climate_code):
         climate_code = climate_code.split(" - ")[0]
@@ -5077,16 +5303,25 @@ def get_climate_color(climate_code):
     colors = {
         # Tropical Climates
         'AF': '#0000FE', 'AM': '#0077FD', 'AW': '#44A7F8',
+        
         # Arid Climates
         'BWH': "#FD0000", 'BWK': '#F89292', 'BSH': '#F4A400', 'BSK': '#FEDA60',
+        
         # Temperate Climates
-        'CSA': '#FFFE04', 'CSB': '#CDCE08',
         'CFA': '#C5FF4B', 'CFB': '#64FD33', 'CFC': '#36C901',
+        'CSA': '#FFFE04', 'CSB': '#CDCE08',
+        'CWA': '#95FE97',  # Added Cwa - Light Green
+        
         # Continental Climates
         'DFA': '#01FEFC', 'DFB': '#3DC6FA', 'DFC': '#037F7F', 'DFD': '#004860',
+        'DWA': '#A5ADFE',  # Added Dwa - Light Purple
+        'DWB': '#4A78E7', 'DWC': '#48DDB1', 'DWD': '#32028A',
+        
         # Polar Climates
         'ET': '#AFB0AB', 'EF': '#686964',
+        
         # Special categories
+        'VAR': '#999999',  # Added Var - Gray
         'ALL': '#999999'
     }
     return colors.get(climate_upper, '#CCCCCC')
@@ -5750,7 +5985,7 @@ def render_unified_search_interface(enable_editing=False):
             st.markdown(f"<p><b>The following {len(filtered_records)} studies show that an increase (or presence) in {actual_criteria} leads to <i>{'higher' if 'Increase' in selected_direction else 'lower'}</i> {actual_method}.</b></p>", unsafe_allow_html=True)
 
         # PAGINATION
-        RECORDS_PER_PAGE = 5
+        RECORDS_PER_PAGE = 10
         if len(filtered_records) > RECORDS_PER_PAGE:
             if "results_page" not in st.session_state:
                 st.session_state.results_page = 0
@@ -5788,11 +6023,16 @@ def render_unified_search_interface(enable_editing=False):
             col1, col2 = st.columns(2)
             
             with col1:
-                st.write(f"**{criteria}** → **{energy_method}** ({direction})")
-                if location:
-                    st.write(f"**Location:** {location}")
-                if building_use:
-                    st.write(f"**Building Use:** {building_use}")
+                clean_criteria = sanitize_metadata_text(criteria)
+                clean_energy_method = sanitize_metadata_text(energy_method)
+                clean_location = sanitize_metadata_text(location) if location else None
+                clean_building_use = sanitize_metadata_text(building_use) if building_use else None
+                
+                st.write(f"**{clean_criteria}** → **{clean_energy_method}** ({direction})")
+                if clean_location:
+                    st.write(f"**Location:** {clean_location}")
+                if clean_building_use:
+                    st.write(f"**Building Use:** {clean_building_use}")
             
             with col2:
                 st.write(f"**Scale:** {scale}")
@@ -5872,11 +6112,10 @@ def render_unified_search_interface(enable_editing=False):
 
 def render_contribute_tab():
     """Render the Contribute tab content"""
-    st.title("We're making it better.")
+    st.title("Contribute to the SpatialBuild Energy project.")
     whats_next_html = ("""
-    Future updates will include new features like filters for climate and scale (urban vs. national) to fine-tune recommendations.</p> <strong>Contribute to the mission.</strong>
-    Log in or sign up to add your studies or references, sharing determinants, energy outputs, and their relationships. After review, your contributions will enhance the database, helping us grow this resource for urban planners, developers, and policymakers.</p>
-    Let's work together to optimize macro-scale energy use and create sustainable cities. <br><strong>Dive in, explore, and start contributing today.</strong>"""
+    Sign up or log in to add your study or reference, sharing determinants, energy outputs and their relationships. If approved your contribution will be added to the database. Your help will improve this resource for urban planners, developers, and policymakers.</p>
+    Let's work together to optimize macro-scale energy use and create sustainable cities. <br><strong>Dive in and explore today.</strong>"""
     )
     st.markdown(whats_next_html, unsafe_allow_html=True)
     
@@ -5983,7 +6222,7 @@ def render_spatialbuild_tab(enable_editing=False):
 if st.session_state.logged_in:
     if st.session_state.current_user == "admin":
         # Admin view with Papers tab
-        tab_labels = ["SpatialBuild Energy", "Papers", "Contribute", "Edit/Review"]
+        tab_labels = ["SpatialBuild Energy", "Studies", "Contribute", "Edit/Review"]
         tabs = st.tabs(tab_labels)
         tab0, tab1, tab2, tab3 = tabs
         
@@ -6018,7 +6257,7 @@ if st.session_state.logged_in:
 
     else:  
         # Regular user view with Papers tab
-        tab_labels = ["SpatialBuild Energy", "Papers", "Contribute", "Your Contributions"]
+        tab_labels = ["SpatialBuild Energy", "Studies", "Contribute", "Your Contributions"]
         tabs = st.tabs(tab_labels)
         tab0, tab1, tab2, tab3 = tabs
         
@@ -6038,7 +6277,7 @@ if st.session_state.logged_in:
 
 else:  
     # Not logged in view with Papers tab
-    tab_labels = ["SpatialBuild Energy", "Papers", "Contribute"]
+    tab_labels = ["SpatialBuild Energy", "Studies", "Contribute"]
     tabs = st.tabs(tab_labels)
     tab0, tab1, tab2 = tabs
     
