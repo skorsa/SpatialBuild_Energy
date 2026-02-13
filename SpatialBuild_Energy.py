@@ -4905,9 +4905,12 @@ def render_enhanced_papers_tab():
                 st.metric("Unique Climates", stats[4] or 0)
             
             # Show climate code distribution with colors and descriptions
+            # In render_enhanced_papers_tab(), replace the climate distribution section
+
+            # Show climate code distribution with horizontal bars
             st.subheader("Climate Code Distribution")
-            
-            # Define climate descriptions with added Dwa and Cwa
+
+            # Define climate descriptions (keeping your existing dictionary)
             climate_descriptions = {
                 # Tropical Climates
                 'Af': 'Tropical Rainforest', 
@@ -4926,14 +4929,14 @@ def render_enhanced_papers_tab():
                 'Cfc': 'Subpolar Oceanic',
                 'Csa': 'Hot-summer Mediterranean', 
                 'Csb': 'Warm-summer Mediterranean',
-                'Cwa': 'Monsoon-influenced Humid Subtropical',  # Added Cwa
+                'Cwa': 'Monsoon-influenced Humid Subtropical',
                 
                 # Continental Climates
                 'Dfa': 'Hot-summer Humid Continental', 
                 'Dfb': 'Warm-summer Humid Continental', 
                 'Dfc': 'Subarctic', 
                 'Dfd': 'Extremely Cold Subarctic',
-                'Dwa': 'Monsoon-influenced Hot-summer Humid Continental',  # Added Dwa
+                'Dwa': 'Monsoon-influenced Hot-summer Humid Continental',
                 'Dwb': 'Monsoon-influenced Warm-summer Humid Continental',
                 'Dwc': 'Monsoon-influenced Subarctic',
                 'Dwd': 'Monsoon-influenced Extremely Cold Subarctic',
@@ -4943,9 +4946,9 @@ def render_enhanced_papers_tab():
                 'EF': 'Ice Cap',
                 
                 # Special cases
-                'Var': 'Varies / Multiple Climates'  # Added Var for varied climates
+                'Var': 'Varies / Multiple Climates'
             }
-            
+
             cursor.execute('''
                 SELECT climate, COUNT(*) as count
                 FROM energy_data 
@@ -4963,8 +4966,90 @@ def render_enhanced_papers_tab():
                 ORDER BY count DESC
                 LIMIT 15
             ''')
-            
+
             top_climates = cursor.fetchall()
+
+            if top_climates:
+                # Find max count for scaling bars
+                max_count = max(count for _, count in top_climates)
+                
+                # Create a list for processing
+                climate_data = []
+                for climate, count in top_climates:
+                    # Extract clean climate code
+                    climate_code = climate
+                    if " - " in str(climate):
+                        climate_code = climate.split(" - ")[0]
+                    climate_code = ''.join([c for c in str(climate_code) if c.isalnum()])
+                    
+                    # Get description and color
+                    description = climate_descriptions.get(climate_code, '')
+                    color = get_climate_color(climate_code)
+                    
+                    climate_data.append({
+                        'code': climate_code,
+                        'description': description,
+                        'count': count,
+                        'width_percent': (count / max_count) * 100,  # Scale relative to max
+                        'color': color
+                    })
+                
+                # Display as horizontal bars
+                for item in climate_data:
+                    # Create two columns - one for description, one for bar and count
+                    col_desc, col_bar = st.columns([1.2, 3])
+                    
+                    with col_desc:
+                        # Show only the description, vertically centered using markdown spacing
+                        if item['description']:
+                            # Use div with flexbox to vertically center the text
+                            desc_html = f'''
+                            <div style="display: flex; align-items: center; height: 48px; margin: 8px 0;">
+                                <span style="font-style: italic; color: #555;">{item['description']}</span>
+                            </div>
+                            '''
+                            st.markdown(desc_html, unsafe_allow_html=True)
+                        else:
+                            # Fallback to code if no description
+                            desc_html = f'''
+                            <div style="display: flex; align-items: center; height: 48px; margin: 8px 0;">
+                                <span style="font-weight: 500;">{item['code']}</span>
+                            </div>
+                            '''
+                            st.markdown(desc_html, unsafe_allow_html=True)
+                    
+                    with col_bar:
+                        # Create horizontal bar with just the code inside, count outside
+                        bar_html = f'''
+                        <div style="display: flex; align-items: center; margin: 8px 0; width: 100%; height: 48px;">
+                            <div style="
+                                width: {item['width_percent']}%;
+                                background-color: {item['color']};
+                                height: 32px;
+                                border-radius: 4px;
+                                display: flex;
+                                align-items: center;
+                                padding-left: 8px;
+                                color: black;
+                                font-weight: 500;
+                                min-width: 50px;
+                                white-space: nowrap;
+                            ">
+                                {item['code']}
+                            </div>
+                            <div style="margin-left: 10px; font-weight: 500; color: #333; min-width: 30px;">
+                                {item['count']}
+                            </div>
+                        </div>
+                        '''
+                        st.markdown(bar_html, unsafe_allow_html=True)
+                
+                # Show total
+                total_studies = sum(count for _, count in top_climates)
+                st.caption(f"Total studies with climate data: {total_studies}")
+                
+            else:
+                st.info("No climate data available")
             
             # Create a DataFrame for better display
             climate_data = []
@@ -4986,18 +5071,18 @@ def render_enhanced_papers_tab():
                     'color': color
                 })
             
-            # Display as colored badges with descriptions
-            for item in climate_data:
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    # Create colored badge with code and description
-                    display_text = f"{item['code']} - {item['description']}" if item['description'] else item['code']
-                    st.markdown(
-                        f"<span style='background-color: {item['color']}; padding: 2px 8px; border-radius: 10px; color: black; font-weight: 500;'>{display_text}</span>", 
-                        unsafe_allow_html=True
-                    )
-                with col2:
-                    st.write(f"**{item['count']}** studies")
+            # # Display as colored badges with descriptions
+            # for item in climate_data:
+            #     col1, col2 = st.columns([3, 1])
+            #     with col1:
+            #         # Create colored badge with code and description
+            #         display_text = f"{item['code']} - {item['description']}" if item['description'] else item['code']
+            #         st.markdown(
+            #             f"<span style='background-color: {item['color']}; padding: 2px 8px; border-radius: 10px; color: black; font-weight: 500;'>{display_text}</span>", 
+            #             unsafe_allow_html=True
+            #         )
+            #     with col2:
+            #         st.write(f"**{item['count']}** studies")
             
             # Show top determinants
             st.subheader("Most Studied Determinants")
