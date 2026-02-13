@@ -4673,7 +4673,7 @@ def render_papers_tab():
         with col_clear:
             # Clear button positioned next to the message
             if st.button("✕ Clear", key=f"clear_btn_{st.session_state.get('papers_clear_counter', 0)}", 
-                       help="Clear search", use_container_width=False):
+                       help="Clear search", use_container_width=True):
                 st.session_state.papers_clear_counter = st.session_state.get('papers_clear_counter', 0) + 1
                 st.session_state.papers_search_query = ""
                 st.session_state.papers_current_results = []
