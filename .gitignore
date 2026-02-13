@@ -4,4 +4,9 @@ old
 myvenv
 sqlite3
 .env
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
 my_database.db
