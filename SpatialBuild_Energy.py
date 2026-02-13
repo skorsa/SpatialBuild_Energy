@@ -81,7 +81,10 @@ def check_database_health():
         st.sidebar.error(f"❌ Database error: {e}")
         return False
 
-#check_database_health()
+def safe_rerun(target_tab="tab3"):
+    """Safely rerun while preserving the target tab"""
+    st.session_state.current_tab = target_tab
+    st.rerun()
 
 def check_button_clicks():
     """Debug function to check if buttons are being clicked"""
@@ -1311,61 +1314,89 @@ def query_dominant_climate_options(conn):
         'Af': 'Tropical Rainforest',
         'Am': 'Tropical Monsoon', 
         'Aw': 'Tropical Savanna',
+        
         # Group B: Arid Climates
         'BWh': 'Hot Desert',
         'BWk': 'Cold Desert',
         'BSh': 'Hot Semi-arid', 
         'BSk': 'Cold Semi-arid',
+        
         # Group C: Temperate Climates
         'Cfa': 'Humid Subtropical',
         'Cfb': 'Oceanic',
         'Cfc': 'Subpolar Oceanic',
         'Csa': 'Hot-summer Mediterranean',
         'Csb': 'Warm-summer Mediterranean',
+        'Cwa': 'Monsoon-influenced Humid Subtropical',
+        'Cwb': 'Monsoon-influenced Subtropical Highland',
+        'Cwc': 'Monsoon-influenced Cold Subtropical Highland',
+        
         # Group D: Continental Climates
         'Dfa': 'Hot-summer Humid Continental',
         'Dfb': 'Warm-summer Humid Continental', 
         'Dfc': 'Subarctic',
         'Dfd': 'Extremely Cold Subarctic',
+        'Dwa': 'Monsoon-influenced Hot-summer Humid Continental',
+        'Dwb': 'Monsoon-influenced Warm-summer Humid Continental',
+        'Dwc': 'Monsoon-influenced Subarctic',
+        'Dwd': 'Monsoon-influenced Extremely Cold Subarctic',
+        
         # Group E: Polar Climates
         'ET': 'Tundra',
         'EF': 'Ice Cap'
     }
     
-    # Color to emoji mapping
-    color_to_emoji = {
-        '#0000FE': '🟦',  # Blue
-        '#0077FD': '🟦',  # Blue
-        '#44A7F8': '🟦',  # Light Blue
-        '#FD0000': '🟥',  # Red
-        '#F89292': '🟥',  # Light Red
-        '#F4A400': '🟧',  # Orange
-        '#FEDA60': '🟨',  # Yellow
-        '#FFFE04': '🟨',  # Yellow
-        '#CDCE08': '🟨',  # Yellow-Green
-        '#95FE97': '🟩',  # Light Green
-        '#62C764': '🟩',  # Green
-        '#379632': '🟩',  # Dark Green
-        '#C5FF4B': '🟩',  # Lime Green
-        '#64FD33': '🟩',  # Green
-        '#36C901': '🟩',  # Green
-        '#FE01FC': '🟪',  # Purple
-        '#CA03C2': '🟪',  # Purple
-        '#973396': '🟪',  # Purple
-        '#8C5D91': '🟪',  # Light Purple
-        '#A5ADFE': '🟦',  # Light Blue
-        '#4A78E7': '🟦',  # Blue
-        '#48DDB1': '🟦',  # Teal
-        '#32028A': '🟪',  # Dark Purple
-        '#01FEFC': '🟦',  # Cyan
-        '#3DC6FA': '🟦',  # Light Blue
-        '#037F7F': '🟦',  # Dark Teal
-        '#004860': '🟦',  # Dark Blue
-        '#AFB0AB': '⬜',  # Gray
-        '#686964': '⬛',  # Dark Gray
+    # Add special cases
+    special_cases = {
+        'Var': 'Varies / Multiple Climates'
     }
     
-    # Filter to ONLY include valid Köppen classifications
+    # Color to emoji mapping
+    color_to_emoji = {
+        # Tropical - Blues
+        '#0000FE': '🟦',  # Af
+        '#0077FD': '🟦',  # Am
+        '#44A7F8': '🟦',  # Aw
+        
+        # Arid - Reds/Oranges/Yellows
+        '#FD0000': '🟥',  # BWh
+        '#F89292': '🟥',  # BWk
+        '#F4A400': '🟧',  # BSh
+        '#FEDA60': '🟨',  # BSk
+        
+        # Temperate - Greens/Yellows
+        '#FFFE04': '🟨',  # Csa
+        '#CDCE08': '🟨',  # Csb
+        '#95FE97': '🟩',  # Cwa
+        '#62C764': '🟩',  # Cwb
+        '#379632': '🟩',  # Cwc
+        '#C5FF4B': '🟩',  # Cfa
+        '#64FD33': '🟩',  # Cfb
+        '#36C901': '🟩',  # Cfc
+        
+        # Continental - Purples/Blues
+        '#FE01FC': '🟪',  # Dsa
+        '#CA03C2': '🟪',  # Dsb
+        '#973396': '🟪',  # Dsc
+        '#8C5D91': '🟪',  # Dsd
+        '#A5ADFE': '🟦',  # Dwa
+        '#4A78E7': '🟦',  # Dwb
+        '#48DDB1': '🟦',  # Dwc
+        '#32028A': '🟪',  # Dwd
+        '#01FEFC': '🟦',  # Dfa
+        '#3DC6FA': '🟦',  # Dfb
+        '#037F7F': '🟦',  # Dfc
+        '#004860': '🟦',  # Dfd
+        
+        # Polar - Grays
+        '#AFB0AB': '⬜',  # ET
+        '#686964': '⬛',  # EF
+        
+        # Special cases
+        '#999999': '⬜',  # Gray for special cases
+    }
+    
+    # Filter to ONLY include valid Köppen classifications and special cases
     valid_climates = []
     seen_codes = set()
     
@@ -1383,22 +1414,30 @@ def query_dominant_climate_options(conn):
         if not climate_clean:
             continue
             
-        # Check if it's a valid Köppen code (case-insensitive)
-        if climate_clean.upper() in koppen_climates_with_descriptions:
+        # Check if it's a valid Köppen code or special case
+        climate_upper = climate_clean.upper()
+        if climate_upper in koppen_climates_with_descriptions:
             if climate_clean not in seen_codes:  # Avoid duplicates
                 seen_codes.add(climate_clean)
-                # Use the correct description based on uppercase lookup
-                description = koppen_climates_with_descriptions[climate_clean.upper()]
+                description = koppen_climates_with_descriptions[climate_upper]
                 color = get_climate_color(climate_clean)
                 emoji = color_to_emoji.get(color, '⬜')
                 formatted_climate = f"{emoji} {climate_clean} - {description}"
                 valid_climates.append((climate_clean, formatted_climate, color))
+        elif climate_upper in special_cases:
+            if climate_clean not in seen_codes:  # Avoid duplicates
+                seen_codes.add(climate_clean)
+                description = special_cases[climate_upper]
+                color = '#999999'  # Gray for special cases
+                emoji = '⬜'
+                formatted_climate = f"{emoji} {climate_clean} - {description}"
+                valid_climates.append((climate_clean, formatted_climate, color))
     
-    # If no valid climates found in database, return the full list of all Köppen codes
+    # If no valid climates found in database, return the full list of all Köppen codes plus special cases
     if not valid_climates:
-        for climate_code, description in koppen_climates_with_descriptions.items():
-            climate_clean = climate_code
-            color = get_climate_color(climate_code)
+        all_climates = {**koppen_climates_with_descriptions, **special_cases}
+        for climate_code, description in all_climates.items():
+            color = get_climate_color(climate_code) if climate_code in koppen_climates_with_descriptions else '#999999'
             emoji = color_to_emoji.get(color, '⬜')
             formatted_climate = f"{emoji} {climate_code} - {description}"
             valid_climates.append((climate_code, formatted_climate, color))
@@ -1845,7 +1884,7 @@ def display_missing_record(item, category):
 def review_missing_data():
     """Review and edit records with missing data - LOADS NOTHING UNTIL SEARCH"""
     global conn
-    st.subheader("📋 Missing Data Review")
+    st.subheader(" Missing Data Review")
     
     # Initialize session state
     if "missing_data_search" not in st.session_state:
@@ -1854,13 +1893,13 @@ def review_missing_data():
         st.session_state.missing_data_results = None
     
     # Simple search button
-    col1, col2 = st.columns([1, 4])
+    col1, col2 = st.columns([3, 3])
     with col1:
-        if st.button("🔍 Find Missing Data", type="primary", use_container_width=True):
+        if st.button("🔍 Find Records with Missing Data", type="primary", use_container_width=True):
             st.session_state.missing_data_search = True
             st.rerun()
     with col2:
-        st.write("Click to find records with missing scale, climate, or location data")
+        st.write("Click to find records with missing data.")
     
     # ONLY load data when search is clicked
     if st.session_state.get("missing_data_search", False):
@@ -3499,12 +3538,12 @@ def process_confirmed_matches(confirmed_matches, excel_df):
     return updated_count
     
 # UNIFIED EDIT FORM FUNCTION
-def display_unified_edit_form(record_id, record_data=None, is_pending=False, clear_edit_callback=None, from_missing_data=False):
+def display_unified_edit_form(record_id, record_data=None, is_pending=False, clear_edit_callback=None, from_missing_data=False, conn=None):
     """
     Unified edit form for all admin editing interfaces
     from_missing_data: Flag to indicate if we're editing from the Missing Data Review tab
+    conn: Optional database connection (if not provided, creates a new one)
     """
-    global conn
     
     # Generate a unique session ID for this edit session to avoid key conflicts
     if f"edit_session_{record_id}" not in st.session_state:
@@ -3515,8 +3554,9 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False, cle
     session_id = st.session_state[f"edit_session_{record_id}"]
     
     if not record_data:
-        # Fetch record from database if not provided
-        cursor = conn.cursor()
+        # Fetch record from database if not provided - create local connection
+        conn_local = sqlite3.connect(db_file)
+        cursor = conn_local.cursor()
         cursor.execute('''  
             SELECT id, criteria, energy_method, direction, paragraph, user, status, 
                    scale, climate, location, building_use, approach, sample_size
@@ -3525,6 +3565,8 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False, cle
         ''', (record_id,))
         
         record = cursor.fetchone()
+        conn_local.close()
+        
         if not record:
             st.error(f"Record {record_id} not found")
             return False
@@ -3565,13 +3607,19 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False, cle
         
         # Scale (editable with dropdown)
         try:
-            scale_options_list = ["Select scale"] + query_dynamic_scale_options(conn) + ["Add new scale"]
-        except:
+            # Create a local connection for querying scale options
+            conn_local = sqlite3.connect(db_file)
+            scale_options_list = ["Select scale"] + query_dynamic_scale_options(conn_local) + ["Add new scale"]
+            conn_local.close()
+        except Exception as e:
+            st.warning(f"Could not load scale options: {e}")
             scale_options_list = ["Select scale", "Awaiting data", "Add new scale"]
         
         # Find current scale in options
         current_scale = record_data['scale'] if record_data['scale'] else "Select scale"
-        current_scale_index = scale_options_list.index(current_scale) if current_scale in scale_options_list else 0
+        current_scale_index = 0
+        if current_scale in scale_options_list:
+            current_scale_index = scale_options_list.index(current_scale)
         
         selected_scale = st.selectbox("Scale", 
                                     options=scale_options_list,
@@ -3607,18 +3655,29 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False, cle
                                            key=f"unified_new_building_use_{record_id}_{session_id}")
     
     with col2:
-        # Climate - EDITABLE ONLY FROM PREDEFINED OPTIONS - NO FREE TEXT
+        # Climate - Get ALL valid climate options using the same function as papers_tab
         try:
-            climate_options_raw = query_dominant_climate_options(conn)
+            # Create a local connection for querying climate options
+            conn_local = sqlite3.connect(db_file)
+            
+            # Use the same function that works in papers_tab
+            climate_options_raw = query_dominant_climate_options(conn_local)
+            
             # Extract just the formatted strings for display
             climate_options_list = ["Select climate"] + [formatted for formatted, color in climate_options_raw]
-            # NO "Add new climate" option
-        except:
+            
+            conn_local.close()
+        except Exception as e:
+            st.warning(f"Could not load climate options: {e}")
             climate_options_list = ["Select climate"]
         
         # Find current climate in options
         current_climate = record_data['climate'] if record_data['climate'] else "Select climate"
         current_climate_index = 0
+        
+        # If current climate is 'Var', create a proper formatted version
+        if current_climate and current_climate.upper() == 'VAR':
+            current_climate = 'Var - Varies / Multiple Climates'
         
         # Try to match the climate (handle both code only and formatted strings)
         for i, opt in enumerate(climate_options_list):
@@ -3626,8 +3685,12 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False, cle
                 continue
             opt_code = opt.split(" - ")[0] if " - " in opt else opt
             opt_code = ''.join([c for c in opt_code if c.isalnum()])
-            current_clean = current_climate.split(" - ")[0] if " - " in current_climate else current_climate
-            current_clean = ''.join([c for c in current_clean if c.isalnum()])
+            
+            # Handle current climate - could be code only or formatted
+            current_clean = current_climate
+            if " - " in str(current_climate):
+                current_clean = current_climate.split(" - ")[0]
+            current_clean = ''.join([c for c in str(current_clean) if c.isalnum()])
             
             if current_clean and current_clean.upper() == opt_code.upper():
                 current_climate_index = i
@@ -3703,8 +3766,9 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False, cle
             # Prepare approach value
             final_approach = selected_approach if selected_approach != "Select approach" else record_data['approach']
             
-            # Save to database
-            cursor = conn.cursor()
+            # Save to database - create new connection
+            conn_local = sqlite3.connect(db_file)
+            cursor = conn_local.cursor()
             cursor.execute('''
                 UPDATE energy_data 
                 SET criteria = ?, energy_method = ?, direction = ?, paragraph = ?,
@@ -3716,25 +3780,26 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False, cle
                 new_energy_method, 
                 new_direction,
                 new_paragraph,
-                final_scale,
+                final_scale if final_scale != "Select scale" else None,
                 final_climate,  # Now properly handles None
-                new_location,
-                final_building_use,
-                final_approach,
-                new_sample_size,
+                new_location if new_location else None,
+                final_building_use if final_building_use != "Select building use" else None,
+                final_approach if final_approach != "Select approach" else None,
+                new_sample_size if new_sample_size else None,
                 new_status,
                 record_id
             ))
             
-            conn.commit()
+            conn_local.commit()
+            conn_local.close()
             saved = True
             st.success(f"✅ Record {record_id} updated successfully!")
     
     with col_cancel:
         if st.button("❌ Cancel", key=f"unified_cancel_{record_id}_{session_id}", use_container_width=True):
-            # Clear edit mode - use callback if provided, otherwise use session state
+            # Clear edit mode - use callback if provided
             if clear_edit_callback:
-                clear_edit_callback()
+                clear_edit_callback()  # This sets admin_edit_selected_id = None and preserves tab
             else:
                 # Default behavior: clear session state flags
                 if f"edit_missing_record_{record_id}" in st.session_state:
@@ -3750,11 +3815,8 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False, cle
             if f"edit_session_{record_id}" in st.session_state:
                 del st.session_state[f"edit_session_{record_id}"]
             
-            # Clear the global edit flags if we're in missing data review
-            if "admin_editing_in_missing_data" in st.session_state:
-                del st.session_state["admin_editing_in_missing_data"]
-            if "admin_current_edit_record_id" in st.session_state:
-                del st.session_state["admin_current_edit_record_id"]
+            # CRITICAL: Preserve tab state
+            st.session_state.current_tab = "tab3"
             
             # Force rerun
             st.rerun()
@@ -3774,282 +3836,238 @@ def display_unified_edit_form(record_id, record_data=None, is_pending=False, cle
     return saved
 
 def manage_scale_climate_data():
-    """Edit Records - Dropdown directly selects record to edit"""
-    global conn
+    """Edit Records - Search first, then select from results dropdown"""
     
     st.subheader("Edit Records - Full Record Management")
     
-    # ============= FILTER UI FIRST - NO DATA LOADING YET =============
-    cursor = conn.cursor()
+    # ============= SEARCH INTERFACE =============
+    # st.markdown("### 🔍 Search for Records to Edit")
+    st.markdown("Search all records by keyword.")
     
-    # Get ONLY counts for dropdowns - this is fast
-    cursor.execute('''
-        SELECT criteria, COUNT(paragraph) as count
-        FROM energy_data
-        WHERE paragraph IS NOT NULL 
-          AND paragraph != '' 
-          AND paragraph != '0' 
-          AND paragraph != '0.0'
-          AND paragraph != 'None'
-          AND LENGTH(TRIM(paragraph)) > 0
-          AND status NOT IN ("pending", "rejected")
-        GROUP BY criteria
-        LIMIT 100
-    ''')
-    criteria_counts = dict(cursor.fetchall())
+    # Initialize search state
+    if "admin_edit_search_performed" not in st.session_state:
+        st.session_state.admin_edit_search_performed = False
+    if "admin_edit_search_results" not in st.session_state:
+        st.session_state.admin_edit_search_results = []
+    if "admin_edit_search_query" not in st.session_state:
+        st.session_state.admin_edit_search_query = ""
+    if "admin_edit_selected_id" not in st.session_state:
+        st.session_state.admin_edit_selected_id = None
+    if "admin_edit_trigger_search" not in st.session_state:
+        st.session_state.admin_edit_trigger_search = False
     
-    # Initialize session state for filters
-    if "admin_filter_criteria" not in st.session_state:
-        st.session_state.admin_filter_criteria = "All determinants"
-    if "admin_filter_method" not in st.session_state:
-        st.session_state.admin_filter_method = None
-    if "admin_filter_direction" not in st.session_state:
-        st.session_state.admin_filter_direction = None
-    if "admin_search_triggered" not in st.session_state:
-        st.session_state.admin_search_triggered = False
-    if "admin_selected_edit_id" not in st.session_state:
-        st.session_state.admin_selected_edit_id = None
+    # Force the current tab to be Edit/Review
+    st.session_state.current_tab = "tab3"
     
-    # Step 1: Determinant dropdown
-    criteria_list = ["All determinants"] + [f"{c} [{count}]" for c, count in criteria_counts.items()]
-    selected_criteria = st.selectbox(
-        "Filter by Determinant", 
-        criteria_list,
-        key="admin_edit_criteria_unique"
+    # Search input - triggers on Enter (no rerun in callback)
+    def on_search_change():
+        if st.session_state.admin_edit_search_input.strip():
+            st.session_state.admin_edit_trigger_search = True
+    
+    search_query = st.text_input(
+        "Search records",
+        placeholder="Enter record ID, study title, location, climate code, sample size... (press Enter to search)",
+        key="admin_edit_search_input",
+        value=st.session_state.admin_edit_search_query,
+        on_change=on_search_change
     )
     
-    actual_criteria = selected_criteria.split(" [")[0] if selected_criteria != "All determinants" else None
-    
-    # Step 2: Energy Output dropdown
-    actual_method = None
-    if actual_criteria:
-        cursor.execute('''
-            SELECT energy_method, COUNT(paragraph) as count
-            FROM energy_data
-            WHERE criteria = ? 
-              AND paragraph IS NOT NULL 
-              AND paragraph != '' 
-              AND paragraph != '0' 
-              AND paragraph != '0.0'
-              AND paragraph != 'None'
-              AND LENGTH(TRIM(paragraph)) > 0
-              AND status NOT IN ("pending", "rejected")
-            GROUP BY energy_method
-        ''', (actual_criteria,))
-        method_counts = cursor.fetchall()
+    # Process search if triggered
+    if st.session_state.admin_edit_trigger_search:
+        search_query = st.session_state.admin_edit_search_input
+        st.session_state.admin_edit_trigger_search = False
+        st.session_state.admin_edit_search_query = search_query
+        st.session_state.admin_edit_search_performed = True
+        st.session_state.admin_edit_selected_id = None
         
-        method_list = ["All outputs"] + [f"{m} [{c}]" for m, c in method_counts]
-        selected_method = st.selectbox("Filter by Energy Output", method_list, key="admin_edit_method_unique")
-        actual_method = selected_method.split(" [")[0] if selected_method != "All outputs" else None
-        
-        # Step 3: Direction radio
-        if actual_method:
+        with st.spinner("Searching records..."):
+            # Create a NEW connection for this thread
+            conn_local = sqlite3.connect(db_file)
+            cursor = conn_local.cursor()
+            search_pattern = f'%{search_query}%'
+            
+            # Search across all relevant fields
             cursor.execute('''
-                SELECT direction, COUNT(paragraph) as count
-                FROM energy_data
-                WHERE criteria = ? AND energy_method = ? 
-                  AND paragraph IS NOT NULL 
+                SELECT 
+                    id, 
+                    criteria, 
+                    energy_method, 
+                    direction, 
+                    paragraph,
+                    scale,
+                    climate,
+                    location,
+                    building_use,
+                    approach,
+                    sample_size,
+                    user,
+                    status
+                FROM energy_data 
+                WHERE paragraph IS NOT NULL 
                   AND paragraph != '' 
                   AND paragraph != '0' 
                   AND paragraph != '0.0'
                   AND paragraph != 'None'
                   AND LENGTH(TRIM(paragraph)) > 0
-                  AND status NOT IN ("pending", "rejected")
-                GROUP BY direction
-            ''', (actual_criteria, actual_method))
-            direction_counts = dict(cursor.fetchall())
+                  AND (
+                      CAST(id AS TEXT) LIKE ? OR
+                      LOWER(criteria) LIKE LOWER(?) OR
+                      LOWER(energy_method) LIKE LOWER(?) OR
+                      LOWER(direction) LIKE LOWER(?) OR
+                      LOWER(paragraph) LIKE LOWER(?) OR
+                      LOWER(scale) LIKE LOWER(?) OR
+                      LOWER(climate) LIKE LOWER(?) OR
+                      LOWER(location) LIKE LOWER(?) OR
+                      LOWER(building_use) LIKE LOWER(?) OR
+                      LOWER(approach) LIKE LOWER(?) OR
+                      LOWER(sample_size) LIKE LOWER(?) OR
+                      LOWER(user) LIKE LOWER(?)
+                  )
+                ORDER BY id DESC
+                LIMIT 200
+            ''', (search_pattern, search_pattern, search_pattern, search_pattern, 
+                  search_pattern, search_pattern, search_pattern, search_pattern,
+                  search_pattern, search_pattern, search_pattern, search_pattern))
             
-            increase_count = direction_counts.get("Increase", 0)
-            decrease_count = direction_counts.get("Decrease", 0)
+            results = cursor.fetchall()
+            conn_local.close()
             
-            selected_direction = st.radio(
-                "Direction",
-                [f"Increase [{increase_count}]", f"Decrease [{decrease_count}]"],
-                index=None,
-                key="admin_direction_radio_unique"
+            st.session_state.admin_edit_search_results = results
+    
+    # Clear search button
+    if st.session_state.admin_edit_search_performed:
+        col_clear = st.columns([1])[0]
+        with col_clear:
+            if st.button("✕ Clear Search Results", key="admin_edit_clear_btn", use_container_width=True):
+                # Clear all search-related state
+                st.session_state.admin_edit_search_performed = False
+                st.session_state.admin_edit_search_results = []
+                st.session_state.admin_edit_search_query = ""
+                st.session_state.admin_edit_selected_id = None
+                st.session_state.current_tab = "tab3"
+                st.rerun()
+    
+    st.markdown("---")
+    
+    # ============= RESULTS AND SELECTION =============
+    if st.session_state.admin_edit_search_performed and not st.session_state.admin_edit_selected_id:
+        results = st.session_state.admin_edit_search_results
+        
+        if not results:
+            st.warning(f"No records found matching '{st.session_state.admin_edit_search_query}'")
+            return
+        
+        st.success(f"Found {len(results)} records matching '{st.session_state.admin_edit_search_query}'")
+        
+        # Create dropdown of search results
+        st.markdown("###  Select Record to Edit")
+        
+        # Format options for dropdown
+        edit_options = {}
+        for record in results:
+            record_id = record[0]
+            criteria = record[1] if record[1] else "N/A"
+            energy_method = record[2] if record[2] else "N/A"
+            direction = record[3] if record[3] else "N/A"
+            location = record[7] if record[7] else ""
+            climate = record[6] if record[6] else ""
+            
+            # Create a descriptive label
+            location_str = f" | {location}" if location else ""
+            climate_str = f" | {climate}" if climate else ""
+            label = f"ID {record_id}: {criteria} → {energy_method} ({direction}){location_str}{climate_str}"
+            
+            # Truncate if too long
+            if len(label) > 120:
+                label = label[:117] + "..."
+            
+            edit_options[label] = record_id
+        
+        # Sort options by ID (descending)
+        sorted_options = sorted(edit_options.items(), key=lambda x: x[1], reverse=True)
+        
+        # Dropdown for selection
+        if sorted_options:
+            selected_option = st.selectbox(
+                "Choose a record to edit:",
+                options=["-- Select a record --"] + [opt[0] for opt in sorted_options],
+                key="admin_edit_record_selector"
             )
             
-            # Search button
-            col1, col2 = st.columns([1, 5])
-            with col1:
-                if st.button("🔍 Search", type="primary", use_container_width=True, key="admin_search_button"):
-                    st.session_state.admin_search_triggered = True
-                    st.session_state.admin_selected_edit_id = None
+            # When a record is selected
+            if selected_option != "-- Select a record --":
+                selected_id = edit_options[selected_option]
+                
+                # Update selected ID if changed
+                if st.session_state.admin_edit_selected_id != selected_id:
+                    st.session_state.admin_edit_selected_id = selected_id
+                    st.session_state.current_tab = "tab3"
                     st.rerun()
-            with col2:
-                if st.button("✕ Clear", use_container_width=True, key="admin_clear_button"):
-                    st.session_state.admin_search_triggered = False
-                    st.session_state.admin_selected_edit_id = None
-                    if "admin_search_results" in st.session_state:
-                        del st.session_state.admin_search_results
-                    st.rerun()
+            
+            # Show record count
+            st.caption(f"Showing {len(results)} records. Select one to edit.")
     
-    # ============= LOAD RESULTS ONLY WHEN SEARCH IS CLICKED =============
-    if st.session_state.get("admin_search_triggered", False) and actual_criteria and actual_method and selected_direction:
+    # ============= EDIT FORM FOR SELECTED RECORD =============
+    if st.session_state.admin_edit_selected_id:
+        record_id = st.session_state.admin_edit_selected_id
         
-        with st.spinner("Loading records..."):
-            clean_direction = selected_direction.split(" [")[0] if selected_direction else None
+        st.markdown("---")
+        st.markdown(f"###  Editing Record {record_id}")
+        
+        # Add a note that editing will hide the search results
+        st.info("Editing mode active. The search results are hidden while editing. Cancel to return to results.")
+        
+        # Create a NEW connection for fetching the record
+        conn_local = sqlite3.connect(db_file)
+        cursor = conn_local.cursor()
+        cursor.execute('''
+            SELECT criteria, energy_method, direction, paragraph, user, status,
+                   scale, climate, location, building_use, approach, sample_size
+            FROM energy_data WHERE id = ?
+        ''', (record_id,))
+        edit_record = cursor.fetchone()
+        conn_local.close()
+        
+        if edit_record:
+            # Use the unified edit form
+            record_data = {
+                'criteria': edit_record[0],
+                'energy_method': edit_record[1],
+                'direction': edit_record[2],
+                'paragraph': edit_record[3],
+                'user': edit_record[4],
+                'status': edit_record[5],
+                'scale': edit_record[6],
+                'climate': edit_record[7],
+                'location': edit_record[8],
+                'building_use': edit_record[9],
+                'approach': edit_record[10],
+                'sample_size': edit_record[11]
+            }
             
-            # Get records
-            cursor.execute('''
-                SELECT id, criteria, energy_method, direction, paragraph, user, status, 
-                       scale, climate, location, building_use, approach, sample_size
-                FROM energy_data 
-                WHERE status NOT IN ("pending", "rejected")
-                  AND criteria = ?
-                  AND energy_method = ?
-                  AND direction = ?
-                  AND paragraph IS NOT NULL 
-                  AND paragraph != '' 
-                  AND paragraph != '0' 
-                  AND paragraph != '0.0'
-                  AND paragraph != 'None'
-                  AND LENGTH(TRIM(paragraph)) > 0
-                ORDER BY id DESC
-                LIMIT 100
-            ''', (actual_criteria, actual_method, clean_direction))
+            # Define callback to clear selection after save/cancel
+            def clear_edit_selection():
+                st.session_state.admin_edit_selected_id = None
+                st.session_state.current_tab = "tab3"
             
-            records = cursor.fetchall()
-            st.session_state.admin_search_results = records
+            saved = display_unified_edit_form(
+                record_id, 
+                record_data, 
+                is_pending=False, 
+                clear_edit_callback=clear_edit_selection,
+                from_missing_data=False
+            )
             
-            st.write(f"**Found {len(records)} records**")
-            
-            if records:
-                # ============= DROPDOWN TO SELECT RECORD TO EDIT =============
-                st.markdown("### ✏️ Select Record to Edit")
-                
-                # Create dropdown of record IDs
-                edit_options = {f"ID {r[0]}: {r[1]} → {r[2]} ({r[3]}) | {r[5]} | {r[6]}": r[0] for r in records}
-                
-                if edit_options:
-                    selected_record_display = st.selectbox(
-                        "Choose a record to edit:",
-                        options=["-- Select a record --"] + list(edit_options.keys()),
-                        key="admin_record_selector"
-                    )
-                    
-                    # When a record is selected, set it as the edit target
-                    if selected_record_display != "-- Select a record --":
-                        selected_id = edit_options[selected_record_display]
-                        if st.session_state.admin_selected_edit_id != selected_id:
-                            st.session_state.admin_selected_edit_id = selected_id
-                            st.rerun()
-                
-                # ============= EDIT FORM FOR SELECTED RECORD =============
-                if st.session_state.admin_selected_edit_id:
-                    record_id = st.session_state.admin_selected_edit_id
-                    
-                    st.markdown("---")
-                    st.markdown(f"### ✏️ Editing Record {record_id}")
-                    
-                    # Cancel button
-                    col_cancel_top, _ = st.columns([1, 5])
-                    with col_cancel_top:
-                        if st.button("❌ Cancel Editing", key="admin_cancel_edit_top", use_container_width=True):
-                            st.session_state.admin_selected_edit_id = None
-                            st.rerun()
-                    
-                    # Fetch the specific record
-                    cursor.execute('''
-                        SELECT criteria, energy_method, direction, paragraph, user, status,
-                               scale, climate, location, building_use, approach, sample_size
-                        FROM energy_data WHERE id = ?
-                    ''', (record_id,))
-                    edit_record = cursor.fetchone()
-                    
-                    if edit_record:
-                        with st.form(key=f"admin_edit_form_{record_id}"):
-                            col1, col2 = st.columns(2)
-                            
-                            with col1:
-                                new_criteria = st.text_input("Determinant", value=edit_record[0])
-                                new_energy = st.text_input("Energy Output", value=edit_record[1])
-                                new_direction = st.selectbox("Direction", ["Increase", "Decrease"], 
-                                                           index=0 if edit_record[2] == "Increase" else 1)
-                                new_scale = st.text_input("Scale", value=edit_record[6] or "")
-                                
-                                # ============= FIXED CLIMATE DROPDOWN =============
-                                # Get ONLY valid Köppen climate options
-                                climate_options_raw = query_dominant_climate_options(conn)
-                                climate_options_list = ["Select climate"] + [formatted for formatted, color in climate_options_raw]
-                                
-                                # Find current climate in options
-                                current_climate = edit_record[7] if edit_record[7] else "Select climate"
-                                current_climate_index = 0
-                                
-                                # Try to match the climate (handle both code only and formatted strings)
-                                for i, opt in enumerate(climate_options_list):
-                                    if opt == "Select climate":
-                                        continue
-                                    opt_code = opt.split(" - ")[0] if " - " in opt else opt
-                                    opt_code = ''.join([c for c in opt_code if c.isalnum()])
-                                    current_clean = current_climate.split(" - ")[0] if " - " in current_climate else current_climate
-                                    current_clean = ''.join([c for c in current_clean if c.isalnum()])
-                                    
-                                    if current_clean and current_clean.upper() == opt_code.upper():
-                                        current_climate_index = i
-                                        break
-                                
-                                selected_climate = st.selectbox(
-                                    "Climate", 
-                                    options=climate_options_list,
-                                    index=current_climate_index,
-                                    key=f"admin_climate_{record_id}"
-                                )
-                                
-                                # Extract clean climate code for saving
-                                new_climate = None
-                                if selected_climate != "Select climate":
-                                    if " - " in selected_climate:
-                                        new_climate = selected_climate.split(" - ")[0]
-                                        new_climate = ''.join([c for c in new_climate if c.isalnum()])
-                                    else:
-                                        new_climate = selected_climate
-                                # ============= END FIXED CLIMATE DROPDOWN =============
-                                
-                                new_location = st.text_input("Location", value=edit_record[8] or "")
-                            
-                            with col2:
-                                new_building_use = st.text_input("Building Use", value=edit_record[9] or "")
-                                new_approach = st.text_input("Approach", value=edit_record[10] or "")
-                                new_sample_size = st.text_input("Sample Size", value=edit_record[11] or "")
-                                new_status = st.selectbox("Status", ["approved", "pending", "rejected"],
-                                                        index=0 if edit_record[5] == "approved" else 
-                                                              1 if edit_record[5] == "pending" else 2)
-                            
-                            new_paragraph = st.text_area("Study Content", value=edit_record[3], height=150)
-                            
-                            # Save button only
-                            if st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True):
-                                cursor.execute('''
-                                    UPDATE energy_data 
-                                    SET criteria = ?, energy_method = ?, direction = ?, paragraph = ?,
-                                        scale = ?, climate = ?, location = ?, building_use = ?,
-                                        approach = ?, sample_size = ?, status = ?
-                                    WHERE id = ?
-                                ''', (
-                                    new_criteria, 
-                                    new_energy, 
-                                    new_direction, 
-                                    new_paragraph,
-                                    new_scale, 
-                                    new_climate,  # Now properly handles None
-                                    new_location, 
-                                    new_building_use,
-                                    new_approach, 
-                                    new_sample_size, 
-                                    new_status, 
-                                    record_id
-                                ))
-                                conn.commit()
-                                st.session_state.admin_selected_edit_id = None
-                                st.success("✅ Record updated successfully!")
-                                st.rerun()
-    else:
-        if actual_criteria and actual_method and selected_direction:
-            st.info("👆 Click 'Search' to load records")
-        else:
-            st.info("👆 Select a determinant, energy output, and direction, then click Search")
+            if saved:
+                # Clear selection and stay on this tab
+                st.session_state.admin_edit_selected_id = None
+                st.session_state.current_tab = "tab3"
+                st.rerun()
+    
+    # If no search performed yet, show hint
+    elif not st.session_state.admin_edit_search_performed:
+        st.info(" Enter a search term above and press Enter to find records to edit")
+
 def review_pending_data():
     global conn
     st.subheader("Review Pending Data Submissions")
@@ -5269,16 +5287,31 @@ def query_scale_options_with_counts(conn, criteria=None, energy_method=None, dir
 
 # Also update the query_climate_options_with_counts function to handle case properly:
 def query_climate_options_with_counts(conn, criteria=None, energy_method=None, direction=None, selected_scales=None):
-    """Get ONLY valid Köppen climate options with counts - FILTER OUT invalid codes"""
+    """Get ALL valid Köppen climate options with counts - FILTER based on current search criteria"""
     cursor = conn.cursor()
     
-    # Define valid Köppen codes for filtering
+    # Define ALL valid Köppen codes including the new ones we added
     valid_koppen_codes = [
-        'Af', 'Am', 'Aw',  # Tropical
-        'BWh', 'BWk', 'BSh', 'BSk',  # Arid
-        'Cfa', 'Cfb', 'Cfc', 'Csa', 'Csb',  # Temperate
-        'Dfa', 'Dfb', 'Dfc', 'Dfd',  # Continental
-        'ET', 'EF'  # Polar
+        # Group A: Tropical
+        'Af', 'Am', 'Aw',
+        
+        # Group B: Arid
+        'BWh', 'BWk', 'BSh', 'BSk',
+        
+        # Group C: Temperate
+        'Cfa', 'Cfb', 'Cfc', 
+        'Csa', 'Csb',
+        'Cwa', 'Cwb', 'Cwc',
+        
+        # Group D: Continental
+        'Dfa', 'Dfb', 'Dfc', 'Dfd',
+        'Dwa', 'Dwb', 'Dwc', 'Dwd',
+        
+        # Group E: Polar
+        'ET', 'EF',
+        
+        # Special cases
+        'Var'
     ]
     
     # Create case-insensitive condition for valid codes
@@ -5325,27 +5358,79 @@ def query_climate_options_with_counts(conn, criteria=None, energy_method=None, d
     cursor.execute(query, params)
     results = cursor.fetchall()
     
-    # Define Köppen climate classifications with descriptions
+    # Define Köppen climate classifications with descriptions (including all new codes)
     koppen_climates_with_descriptions = {
-        'AF': 'Tropical Rainforest', 'AM': 'Tropical Monsoon', 'AW': 'Tropical Savanna',
-        'BWH': 'Hot Desert', 'BWK': 'Cold Desert', 'BSH': 'Hot Semi-arid', 'BSK': 'Cold Semi-arid',
-        'CFA': 'Humid Subtropical', 'CFB': 'Oceanic', 'CFC': 'Subpolar Oceanic',
-        'CSA': 'Hot-summer Mediterranean', 'CSB': 'Warm-summer Mediterranean',
-        'DFA': 'Hot-summer Humid Continental', 'DFB': 'Warm-summer Humid Continental', 
-        'DFC': 'Subarctic', 'DFD': 'Extremely Cold Subarctic',
-        'ET': 'Tundra', 'EF': 'Ice Cap'
+        # Group A: Tropical Climates
+        'AF': 'Tropical Rainforest', 
+        'AM': 'Tropical Monsoon', 
+        'AW': 'Tropical Savanna',
+        
+        # Group B: Arid Climates
+        'BWH': 'Hot Desert', 
+        'BWK': 'Cold Desert', 
+        'BSH': 'Hot Semi-arid', 
+        'BSK': 'Cold Semi-arid',
+        
+        # Group C: Temperate Climates
+        'CFA': 'Humid Subtropical', 
+        'CFB': 'Oceanic', 
+        'CFC': 'Subpolar Oceanic',
+        'CSA': 'Hot-summer Mediterranean', 
+        'CSB': 'Warm-summer Mediterranean',
+        'CWA': 'Monsoon-influenced Humid Subtropical',
+        'CWB': 'Monsoon-influenced Subtropical Highland',
+        'CWC': 'Monsoon-influenced Cold Subtropical Highland',
+        
+        # Group D: Continental Climates
+        'DFA': 'Hot-summer Humid Continental', 
+        'DFB': 'Warm-summer Humid Continental', 
+        'DFC': 'Subarctic', 
+        'DFD': 'Extremely Cold Subarctic',
+        'DWA': 'Monsoon-influenced Hot-summer Humid Continental',
+        'DWB': 'Monsoon-influenced Warm-summer Humid Continental',
+        'DWC': 'Monsoon-influenced Subarctic',
+        'DWD': 'Monsoon-influenced Extremely Cold Subarctic',
+        
+        # Group E: Polar Climates
+        'ET': 'Tundra', 
+        'EF': 'Ice Cap',
+        
+        # Special cases
+        'VAR': 'Varies / Multiple Climates'
     }
     
     # Color to emoji mapping
     color_to_emoji = {
-        '#0000FE': '🟦', '#0077FD': '🟦', '#44A7F8': '🟦',
-        '#FD0000': '🟥', '#F89292': '🟥', '#F4A400': '🟧', '#FEDA60': '🟨',
-        '#FFFE04': '🟨', '#CDCE08': '🟨', '#95FE97': '🟩', '#62C764': '🟩',
-        '#379632': '🟩', '#C5FF4B': '🟩', '#64FD33': '🟩', '#36C901': '🟩',
-        '#FE01FC': '🟪', '#CA03C2': '🟪', '#973396': '🟪', '#8C5D91': '🟪',
-        '#A5ADFE': '🟦', '#4A78E7': '🟦', '#48DDB1': '🟦', '#32028A': '🟪',
-        '#01FEFC': '🟦', '#3DC6FA': '🟦', '#037F7F': '🟦', '#004860': '🟦',
-        '#AFB0AB': '⬜', '#686964': '⬛',
+        '#0000FE': '🟦',  # Af
+        '#0077FD': '🟦',  # Am
+        '#44A7F8': '🟦',  # Aw
+        '#FD0000': '🟥',  # BWh
+        '#F89292': '🟥',  # BWk
+        '#F4A400': '🟧',  # BSh
+        '#FEDA60': '🟨',  # BSk
+        '#FFFE04': '🟨',  # Csa
+        '#CDCE08': '🟨',  # Csb
+        '#95FE97': '🟩',  # Cwa
+        '#62C764': '🟩',  # Cwb
+        '#379632': '🟩',  # Cwc
+        '#C5FF4B': '🟩',  # Cfa
+        '#64FD33': '🟩',  # Cfb
+        '#36C901': '🟩',  # Cfc
+        '#FE01FC': '🟪',  # Dsa
+        '#CA03C2': '🟪',  # Dsb
+        '#973396': '🟪',  # Dsc
+        '#8C5D91': '🟪',  # Dsd
+        '#A5ADFE': '🟦',  # Dwa
+        '#4A78E7': '🟦',  # Dwb
+        '#48DDB1': '🟦',  # Dwc
+        '#32028A': '🟪',  # Dwd
+        '#01FEFC': '🟦',  # Dfa
+        '#3DC6FA': '🟦',  # Dfb
+        '#037F7F': '🟦',  # Dfc
+        '#004860': '🟦',  # Dfd
+        '#AFB0AB': '⬜',  # ET
+        '#686964': '⬛',  # EF
+        '#999999': '⬜',  # Var
     }
     
     # Create a dictionary of counts
@@ -5359,17 +5444,19 @@ def query_climate_options_with_counts(conn, criteria=None, energy_method=None, d
             if climate_clean.upper() in koppen_climates_with_descriptions:
                 count_dict[climate_clean] = count
     
-    # Format all valid Köppen codes with their counts
+    # Format ONLY climate codes that have counts > 0
     valid_climates = []
     for climate_code in valid_koppen_codes:
         climate_upper = climate_code.upper()
         if climate_upper in koppen_climates_with_descriptions:
-            description = koppen_climates_with_descriptions[climate_upper]
-            color = get_climate_color(climate_code)
-            emoji = color_to_emoji.get(color, '⬜')
             count = count_dict.get(climate_code, 0)
-            formatted_climate = f"{emoji} {climate_code} - {description} [{count}]"
-            valid_climates.append((climate_code, formatted_climate, color, count))
+            # ONLY include if count > 0
+            if count > 0:
+                description = koppen_climates_with_descriptions[climate_upper]
+                color = get_climate_color(climate_code)
+                emoji = color_to_emoji.get(color, '⬜')
+                formatted_climate = f"{emoji} {climate_code} - {description} [{count}]"
+                valid_climates.append((climate_code, formatted_climate, color, count))
     
     # Sort by climate code
     valid_climates.sort(key=lambda x: x[0])
@@ -5395,18 +5482,17 @@ def get_climate_color(climate_code):
         # Temperate Climates
         'CFA': '#C5FF4B', 'CFB': '#64FD33', 'CFC': '#36C901',
         'CSA': '#FFFE04', 'CSB': '#CDCE08',
-        'CWA': '#95FE97',  # Added Cwa - Light Green
+        'CWA': '#95FE97', 'CWB': '#62C764', 'CWC': '#379632',
         
         # Continental Climates
         'DFA': '#01FEFC', 'DFB': '#3DC6FA', 'DFC': '#037F7F', 'DFD': '#004860',
-        'DWA': '#A5ADFE',  # Added Dwa - Light Purple
-        'DWB': '#4A78E7', 'DWC': '#48DDB1', 'DWD': '#32028A',
+        'DWA': '#A5ADFE', 'DWB': '#4A78E7', 'DWC': '#48DDB1', 'DWD': '#32028A',
         
         # Polar Climates
         'ET': '#AFB0AB', 'EF': '#686964',
         
         # Special categories
-        'VAR': '#999999',  # Added Var - Gray
+        'VAR': '#999999',
         'ALL': '#999999'
     }
     return colors.get(climate_upper, '#CCCCCC')
@@ -6296,29 +6382,42 @@ def render_spatialbuild_tab(enable_editing=False):
 
     how_it_works_html = ("""
     1. Pick Your Focus: Choose the determinant you want to explore.<br>
-    2. Select Energy Outputs: For example energy use intensity or heating demand from our database.<br>
-    3. Filter the Results by the direction of the relationship (e.g., increases or decreases), and access the relevant studies with the links provided."""
+    2. Select Energy Outputs: For example energy use intensity or heating demand.<br>
+    3. Filter your Results and access the relevant study via the links provided."""
     )
     st.markdown(how_it_works_html, unsafe_allow_html=True)
     
     render_unified_search_interface(enable_editing=enable_editing)
 
-# MAIN APP LAYOUT - UPDATED WITH PAPERS TAB
+# MAIN APP LAYOUT - UPDATED WITH PAPERS TAB AND TAB STATE MANAGEMENT
+# Initialize current_tab if not exists
+if "current_tab" not in st.session_state:
+    st.session_state.current_tab = "tab0"
+
 if st.session_state.logged_in:
     if st.session_state.current_user == "admin":
         # Admin view with Papers tab
         tab_labels = ["SpatialBuild Energy", "Studies", "Contribute", "Edit/Review"]
+        
+        # Create tabs - all tabs will render their content
         tabs = st.tabs(tab_labels)
+        
+        # Create references to tabs
         tab0, tab1, tab2, tab3 = tabs
         
+        # Render ALL tabs - Streamlit handles which one is visible
         with tab0:
             render_spatialbuild_tab(enable_editing=False)
+            # Update current tab when this tab is active
+            st.session_state.current_tab = "tab0"
         
         with tab1:
             render_enhanced_papers_tab()
+            st.session_state.current_tab = "tab1"
         
         with tab2:
             render_contribute_tab()
+            st.session_state.current_tab = "tab2"
         
         with tab3:
             # Check if we're currently editing a record in missing data
@@ -6337,45 +6436,92 @@ if st.session_state.logged_in:
                 st.markdown("---")
             
             admin_dashboard()
+            st.session_state.current_tab = "tab3"
         
         render_admin_sidebar()
 
     else:  
         # Regular user view with Papers tab
         tab_labels = ["SpatialBuild Energy", "Studies", "Contribute", "Your Contributions"]
+        
+        # Create tabs
         tabs = st.tabs(tab_labels)
         tab0, tab1, tab2, tab3 = tabs
         
         with tab0:
             render_spatialbuild_tab(enable_editing=False)
+            st.session_state.current_tab = "tab0"
         
         with tab1:
             render_enhanced_papers_tab()
+            st.session_state.current_tab = "tab1"
         
         with tab2:
             render_contribute_tab()
+            st.session_state.current_tab = "tab2"
         
         with tab3:
             user_dashboard()
+            st.session_state.current_tab = "tab3"
         
         render_user_sidebar()
 
 else:  
     # Not logged in view with Papers tab
     tab_labels = ["SpatialBuild Energy", "Studies", "Contribute"]
+    
+    # Create tabs
     tabs = st.tabs(tab_labels)
     tab0, tab1, tab2 = tabs
     
     with tab0:
         render_spatialbuild_tab(enable_editing=False)
+        st.session_state.current_tab = "tab0"
     
     with tab1:
         render_enhanced_papers_tab()
+        st.session_state.current_tab = "tab1"
     
     with tab2:
         render_contribute_tab()
+        st.session_state.current_tab = "tab2"
     
     render_guest_sidebar()
+
+# Add this after your main app layout to ensure tabs stay active
+st.markdown("""
+<script>
+// Function to set active tab
+function setActiveTab() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const tabParam = urlParams.get('tab');
+    
+    // If we have a stored tab in sessionStorage, use it
+    const savedTab = sessionStorage.getItem('active_tab');
+    if (savedTab !== null) {
+        const tabButtons = document.querySelectorAll('button[data-baseweb="tab"]');
+        if (tabButtons.length > parseInt(savedTab)) {
+            setTimeout(function() {
+                tabButtons[parseInt(savedTab)].click();
+            }, 100);
+        }
+    }
+}
+
+// Run when page loads
+document.addEventListener('DOMContentLoaded', setActiveTab);
+
+// Also run after any Streamlit rerun
+const observer = new MutationObserver(function(mutations) {
+    setActiveTab();
+});
+
+observer.observe(document.body, {
+    childList: true,
+    subtree: true
+});
+</script>
+""", unsafe_allow_html=True)
 
 # Footer (only once)
 footer_html = """
