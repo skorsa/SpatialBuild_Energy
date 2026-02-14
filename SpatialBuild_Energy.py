@@ -4801,15 +4801,36 @@ def render_papers_tab():
                     if sample_size:
                         st.write(f"**Sample Size:** {sample_size}")
                 
-                # STUDY CONTENT
+                # STUDY CONTENT - FIXED HIGHLIGHTING TO AVOID URLS
                 highlighted_paragraph = paragraph
                 if search_query:
                     import re
+                    
+                    # First, temporarily replace URLs with placeholders to avoid highlighting inside them
+                    url_pattern = r'https?://\S+|doi\.org/\S+|www\.\S+'
+                    
+                    # Find all URLs
+                    urls = re.findall(url_pattern, paragraph, re.IGNORECASE)
+                    
+                    # Create a mapping of URLs to placeholders
+                    placeholders = {}
+                    temp_text = paragraph
+                    for i, url in enumerate(urls):
+                        placeholder = f"__URL_PLACEHOLDER_{i}__"
+                        placeholders[placeholder] = url
+                        temp_text = temp_text.replace(url, placeholder)
+                    
+                    # Now highlight in the text without URLs
                     pattern = re.compile(re.escape(search_query), re.IGNORECASE)
-                    highlighted_paragraph = pattern.sub(
+                    highlighted_temp = pattern.sub(
                         lambda m: f"<span style='background-color: #FFFF00; font-weight: bold;'>{m.group()}</span>", 
-                        highlighted_paragraph
+                        temp_text
                     )
+                    
+                    # Put the URLs back
+                    highlighted_paragraph = highlighted_temp
+                    for placeholder, url in placeholders.items():
+                        highlighted_paragraph = highlighted_paragraph.replace(placeholder, url)
                 
                 paragraph_with_links = convert_urls_to_links(highlighted_paragraph)
                 
@@ -4865,8 +4886,6 @@ def render_papers_tab():
     # Initial state - no search performed yet
     elif not st.session_state.papers_search_performed:
         st.info("Enter a search term above and press Enter to find studies in the database.")
-    
-    # Empty search state - show nothing
 
 def render_enhanced_papers_tab():
     """Enhanced Studies tab - NO statistics for admin to prevent slowdown"""
@@ -6383,7 +6402,7 @@ def render_spatialbuild_tab(enable_editing=False):
     how_it_works_html = ("""
     1. Pick Your Focus: Choose the determinant you want to explore.<br>
     2. Select Energy Outputs: For example energy use intensity or heating demand.<br>
-    3. Filter your Results and access the relevant study via the links provided."""
+    3. Filter your Results and access the relevant study via links provided."""
     )
     st.markdown(how_it_works_html, unsafe_allow_html=True)
     
