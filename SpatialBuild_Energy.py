@@ -6219,6 +6219,7 @@ def render_unified_search_interface(enable_editing=False):
                 clean_building_use = sanitize_metadata_text(building_use) if building_use else None
                 
                 st.write(f"**{clean_criteria}** → **{clean_energy_method}** ({direction})")
+                st.write(f"**Record ID:** `{record_id}`")
                 if clean_location:
                     st.write(f"**Location:** {clean_location}")
                 if clean_building_use:
