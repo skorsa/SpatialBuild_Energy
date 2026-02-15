@@ -4986,6 +4986,7 @@ def render_enhanced_papers_tab():
             # In render_enhanced_papers_tab(), replace the climate distribution section
 
             # Show climate code distribution with horizontal bars
+            # Show climate code distribution with horizontal bars - BASED ON DISTINCT STUDIES
             st.subheader("Climate Code Distribution")
 
             # Define climate descriptions (keeping your existing dictionary)
@@ -5027,8 +5028,9 @@ def render_enhanced_papers_tab():
                 'Var': 'Varies / Multiple Climates'
             }
 
+            # Count DISTINCT paragraphs (studies) by climate code
             cursor.execute('''
-                SELECT climate, COUNT(*) as count
+                SELECT climate, COUNT(DISTINCT paragraph) as study_count
                 FROM energy_data 
                 WHERE climate IS NOT NULL 
                 AND climate != '' 
@@ -5041,7 +5043,7 @@ def render_enhanced_papers_tab():
                 AND LENGTH(TRIM(paragraph)) > 0
                 AND status NOT IN ("rejected")
                 GROUP BY climate
-                ORDER BY count DESC
+                ORDER BY study_count DESC
                 LIMIT 15
             ''')
 
@@ -5050,6 +5052,9 @@ def render_enhanced_papers_tab():
             if top_climates:
                 # Find max count for scaling bars
                 max_count = max(count for _, count in top_climates)
+                
+                # Calculate total studies with climate data
+                total_studies_with_climate = sum(count for _, count in top_climates)
                 
                 # Create a list for processing
                 climate_data = []
@@ -5082,7 +5087,7 @@ def render_enhanced_papers_tab():
                         if item['description']:
                             # Use div with flexbox to vertically center the text
                             desc_html = f'''
-                            <div style="display: flex; align-items: center; height: 32px; margin: 0px 0;">
+                            <div style="display: flex; align-items: center; height: 32px; margin: 2px 0;">
                                 <span style="font-style: italic; color: #555; font-size: 0.9em;">{item['description']}</span>
                             </div>
                             '''
@@ -5090,20 +5095,20 @@ def render_enhanced_papers_tab():
                         else:
                             # Fallback to code if no description
                             desc_html = f'''
-                            <div style="display: flex; align-items: center; height: 32px; margin: 0px 0;">
+                            <div style="display: flex; align-items: center; height: 32px; margin: 2px 0;">
                                 <span style="font-weight: 500; font-size: 0.9em;">{item['code']}</span>
                             </div>
                             '''
                             st.markdown(desc_html, unsafe_allow_html=True)
                     
                     with col_bar:
-                        # Create horizontal bar with just the code inside, count outside
+                        # Create horizontal bar with just the code inside, count outside - COMPACT VERSION
                         bar_html = f'''
-                        <div style="display: flex; align-items: center; margin: 0px 0; width: 100%; height: 48px;">
+                        <div style="display: flex; align-items: center; margin: 2px 0; width: 100%; height: 32px;">
                             <div style="
                                 width: {item['width_percent']}%;
                                 background-color: {item['color']};
-                                height: 32px;
+                                height: 24px;
                                 border-radius: 4px;
                                 display: flex;
                                 align-items: center;
@@ -5123,8 +5128,7 @@ def render_enhanced_papers_tab():
                         st.markdown(bar_html, unsafe_allow_html=True)
                 
                 # Show total
-                total_studies = sum(count for _, count in top_climates)
-                st.caption(f"Total studies with climate data: {total_studies}")
+                st.caption(f"Total studies with climate data: {total_studies_with_climate}")
                 
             else:
                 st.info("No climate data available")
