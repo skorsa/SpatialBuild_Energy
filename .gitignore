@@ -4,6 +4,7 @@ old
 myvenv
 sqlite3
 .env
+notes.txt
 
 # Database files
 *.db

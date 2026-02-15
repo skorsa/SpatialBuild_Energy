@@ -1,2 +1,7 @@
-streamlit-authenticator==0.1.5
+streamlit
+streamlit-authenticator
+pandas
 python-dotenv
+bcrypt
+supabase
+openpyxl
