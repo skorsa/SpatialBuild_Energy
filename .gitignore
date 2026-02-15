@@ -5,6 +5,7 @@ myvenv
 sqlite3
 .env
 notes.txt
+.streamlit
 
 # Database files
 *.db
