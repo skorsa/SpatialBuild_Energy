@@ -3884,24 +3884,22 @@ def manage_scale_climate_data():
             # Create a NEW connection for this thread
             conn_local = sqlite3.connect(db_file)
             cursor = conn_local.cursor()
+            # Search using SQL LIKE
             search_pattern = f'%{search_query}%'
             
-            # Search across all relevant fields
             cursor.execute('''
                 SELECT 
-                    id, 
-                    criteria, 
-                    energy_method, 
-                    direction, 
+                    id,
                     paragraph,
+                    criteria,
+                    energy_method,
+                    direction,
                     scale,
                     climate,
                     location,
                     building_use,
                     approach,
-                    sample_size,
-                    user,
-                    status
+                    sample_size
                 FROM energy_data 
                 WHERE paragraph IS NOT NULL 
                   AND paragraph != '' 
@@ -3909,25 +3907,21 @@ def manage_scale_climate_data():
                   AND paragraph != '0.0'
                   AND paragraph != 'None'
                   AND LENGTH(TRIM(paragraph)) > 0
+                  AND status NOT IN ("rejected")
                   AND (
                       CAST(id AS TEXT) LIKE ? OR
+                      LOWER(paragraph) LIKE LOWER(?) OR
                       LOWER(criteria) LIKE LOWER(?) OR
                       LOWER(energy_method) LIKE LOWER(?) OR
-                      LOWER(direction) LIKE LOWER(?) OR
-                      LOWER(paragraph) LIKE LOWER(?) OR
-                      LOWER(scale) LIKE LOWER(?) OR
-                      LOWER(climate) LIKE LOWER(?) OR
                       LOWER(location) LIKE LOWER(?) OR
+                      LOWER(climate) LIKE LOWER(?) OR
                       LOWER(building_use) LIKE LOWER(?) OR
                       LOWER(approach) LIKE LOWER(?) OR
-                      LOWER(sample_size) LIKE LOWER(?) OR
-                      LOWER(user) LIKE LOWER(?)
+                      LOWER(sample_size) LIKE LOWER(?)
                   )
                 ORDER BY id DESC
-                LIMIT 200
             ''', (search_pattern, search_pattern, search_pattern, search_pattern, 
-                  search_pattern, search_pattern, search_pattern, search_pattern,
-                  search_pattern, search_pattern, search_pattern, search_pattern))
+                  search_pattern, search_pattern, search_pattern, search_pattern, search_pattern))
             
             results = cursor.fetchall()
             conn_local.close()
