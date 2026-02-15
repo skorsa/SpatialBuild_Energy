@@ -4520,6 +4520,10 @@ def render_papers_tab():
     if "papers_search_query" not in st.session_state:
         st.session_state.papers_search_query = ""
     
+    # Initialize sort direction if not exists
+    if "papers_sort_ascending" not in st.session_state:
+        st.session_state.papers_sort_ascending = True
+    
     # ============= CUSTOM CSS FOR PAGINATION =============
     st.markdown("""
     <style>
@@ -4543,13 +4547,20 @@ def render_papers_tab():
     button[key*="papers_prev"], button[key*="papers_next"] {
         width: 100px !important;
     }
+    
+    /* Style for sort direction button */
+    button[key="papers_sort_direction"] {
+        font-size: 20px !important;
+        font-weight: bold !important;
+        padding: 0px 10px !important;
+    }
     </style>
     """, unsafe_allow_html=True)
     
     # ============= SEARCH INTERFACE =============
     
-    # Search row with two columns
-    col1, col2 = st.columns([3, 2])
+    # Search row with three columns
+    col1, col2, col3 = st.columns([3, 1.8, 0.5])
     
     with col1:
         st.markdown("**Search Studies**")
@@ -4582,15 +4593,25 @@ def render_papers_tab():
         st.markdown("**Sort by**")
         sort_order = st.selectbox(
             "Sort results by",
-            ["Determinant (A-Z)", 
-             "Location (A-Z)", 
-             "Building Use (A-Z)", 
-             "Scale (A-Z)", 
-             "Climate (A-Z)", 
-             "Approach (A-Z)"],
+            ["Determinant", 
+             "Location", 
+             "Building Use", 
+             "Scale", 
+             "Climate", 
+             "Approach"],
             key="papers_sort",
             label_visibility="collapsed"
         )
+    
+    with col3:
+        st.markdown("**Order**")
+        # Sort direction toggle button
+        sort_direction_label = "↑" if st.session_state.papers_sort_ascending else "↓"
+        if st.button(sort_direction_label, key="papers_sort_direction", 
+                    help="Toggle sort direction (Ascending/Descending)", 
+                    use_container_width=True):
+            st.session_state.papers_sort_ascending = not st.session_state.papers_sort_ascending
+            st.rerun()
     
     # Get current search query from widget
     current_search = st.session_state.get("papers_search_input", "")
@@ -4663,19 +4684,34 @@ def render_papers_tab():
         results = st.session_state.papers_current_results
         search_query = st.session_state.get("papers_last_query", "")
         
-        # Sort results based on selected option
-        if sort_order == "Determinant (A-Z)":
-            results.sort(key=lambda x: str(x[2] or '').lower())  # criteria
-        elif sort_order == "Location (A-Z)":
-            results.sort(key=lambda x: str(x[7] or '').lower())  # location
-        elif sort_order == "Building Use (A-Z)":
-            results.sort(key=lambda x: str(x[8] or '').lower())  # building_use
-        elif sort_order == "Scale (A-Z)":
-            results.sort(key=lambda x: str(x[5] or '').lower())  # scale
-        elif sort_order == "Climate (A-Z)":
-            results.sort(key=lambda x: str(x[6] or '').lower())  # climate
-        elif sort_order == "Approach (A-Z)":
-            results.sort(key=lambda x: str(x[9] or '').lower())  # approach
+        # Define sort key function
+        def get_sort_key(record):
+            """Extract sort value from record based on selected sort order"""
+            # record indices: 0=id, 1=paragraph, 2=criteria, 3=energy_method, 4=direction, 
+            # 5=scale, 6=climate, 7=location, 8=building_use, 9=approach, 10=sample_size
+            
+            if sort_order == "Determinant":
+                value = str(record[2] or '').lower()  # criteria
+            elif sort_order == "Location":
+                value = str(record[7] or '').lower()  # location
+            elif sort_order == "Building Use":
+                value = str(record[8] or '').lower()  # building_use
+            elif sort_order == "Scale":
+                value = str(record[5] or '').lower()  # scale
+            elif sort_order == "Climate":
+                value = str(record[6] or '').lower()  # climate
+            elif sort_order == "Approach":
+                value = str(record[9] or '').lower()  # approach
+            else:
+                value = str(record[2] or '').lower()  # default to criteria
+            
+            return value
+        
+        # Sort results based on selected option and direction
+        results.sort(key=get_sort_key, reverse=not st.session_state.papers_sort_ascending)
+        
+        # Show current sort direction in the header
+        direction_indicator = "↑" if st.session_state.papers_sort_ascending else "↓"
         
         # Results header with inline clear button - SHOW FOR BOTH RESULTS AND NO RESULTS
         col_header, col_clear = st.columns([4, 1])
@@ -4731,8 +4767,8 @@ def render_papers_tab():
             end_idx = min(start_idx + PAPERS_PER_PAGE, len(results))
             page_results = results[start_idx:end_idx]
             
-            # Display current page indicator
-            st.markdown(f"<div style='text-align: right; color: #666; font-size: 0.9em;'>Showing {start_idx + 1}-{end_idx} of {len(results)} records</div>", 
+            # Display current page indicator with sort info
+            st.markdown(f"<div style='text-align: right; color: #666; font-size: 0.9em;'>Showing {start_idx + 1}-{end_idx} of {len(results)} records • Sorted by {sort_order} {direction_indicator}</div>", 
                       unsafe_allow_html=True)
             
             # ============= DISPLAY RESULTS =============
@@ -4880,7 +4916,7 @@ def render_papers_tab():
                         st.session_state.papers_current_page = min(total_pages - 1, st.session_state.papers_current_page + 1)
                         st.rerun()
                 
-                st.markdown(f"<div style='text-align: right; color: #666; font-size: 0.9em; margin-top: 5px;'>Showing {start_idx + 1}-{end_idx} of {len(results)} records</div>", 
+                st.markdown(f"<div style='text-align: right; color: #666; font-size: 0.9em; margin-top: 5px;'>Showing {start_idx + 1}-{end_idx} of {len(results)} records • Sorted by {sort_order} {direction_indicator}</div>", 
                           unsafe_allow_html=True)
     
     # Initial state - no search performed yet
@@ -4911,6 +4947,7 @@ def render_enhanced_papers_tab():
             # Get comprehensive statistics
             cursor.execute('''
                 SELECT 
+                    COUNT(DISTINCT id) as total_records,
                     COUNT(DISTINCT paragraph) as total_papers,
                     COUNT(DISTINCT criteria) as unique_determinants,
                     COUNT(DISTINCT energy_method) as unique_outputs,
@@ -4931,15 +4968,19 @@ def render_enhanced_papers_tab():
             stats = cursor.fetchone()
             
             # Display statistics in columns
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
+            
             with col1:
-                st.metric("Total Studies", stats[0] or 0)
-                st.metric("Unique Determinants", stats[1] or 0)
-                st.metric("Unique Energy Outputs", stats[2] or 0)
+                st.metric("Total Records", stats[0] or 0)        # COUNT(DISTINCT id)
+                st.metric("Unique Determinants", stats[2] or 0)  # COUNT(DISTINCT criteria)
             
             with col2:
-                st.metric("Unique Locations", stats[3] or 0)
-                st.metric("Unique Climates", stats[4] or 0)
+                st.metric("Total Studies", stats[1] or 0)        # COUNT(DISTINCT paragraph)
+                st.metric("Unique Locations", stats[4] or 0)     # COUNT(DISTINCT location)
+            
+            with col3:
+                st.metric("Unique Energy Outputs", stats[3] or 0) # COUNT(DISTINCT energy_method)
+                st.metric("Unique Climates", stats[5] or 0)       # COUNT(DISTINCT climate)
             
             # Show climate code distribution with colors and descriptions
             # In render_enhanced_papers_tab(), replace the climate distribution section
@@ -5037,20 +5078,20 @@ def render_enhanced_papers_tab():
                     col_desc, col_bar = st.columns([1.2, 3])
                     
                     with col_desc:
-                        # Show only the description, vertically centered using markdown spacing
+                        # Show only the description, vertically centered - COMPACT VERSION
                         if item['description']:
                             # Use div with flexbox to vertically center the text
                             desc_html = f'''
-                            <div style="display: flex; align-items: center; height: 48px; margin: 8px 0;">
-                                <span style="font-style: italic; color: #555;">{item['description']}</span>
+                            <div style="display: flex; align-items: center; height: 32px; margin: 0px 0;">
+                                <span style="font-style: italic; color: #555; font-size: 0.9em;">{item['description']}</span>
                             </div>
                             '''
                             st.markdown(desc_html, unsafe_allow_html=True)
                         else:
                             # Fallback to code if no description
                             desc_html = f'''
-                            <div style="display: flex; align-items: center; height: 48px; margin: 8px 0;">
-                                <span style="font-weight: 500;">{item['code']}</span>
+                            <div style="display: flex; align-items: center; height: 32px; margin: 0px 0;">
+                                <span style="font-weight: 500; font-size: 0.9em;">{item['code']}</span>
                             </div>
                             '''
                             st.markdown(desc_html, unsafe_allow_html=True)
@@ -5058,7 +5099,7 @@ def render_enhanced_papers_tab():
                     with col_bar:
                         # Create horizontal bar with just the code inside, count outside
                         bar_html = f'''
-                        <div style="display: flex; align-items: center; margin: 8px 0; width: 100%; height: 48px;">
+                        <div style="display: flex; align-items: center; margin: 0px 0; width: 100%; height: 48px;">
                             <div style="
                                 width: {item['width_percent']}%;
                                 background-color: {item['color']};
@@ -5122,6 +5163,7 @@ def render_enhanced_papers_tab():
             #         st.write(f"**{item['count']}** studies")
             
             # Show top determinants
+            # Show top determinants
             st.subheader("Most Studied Determinants")
             cursor.execute('''
                 SELECT criteria, COUNT(*) as count
@@ -5140,9 +5182,9 @@ def render_enhanced_papers_tab():
             
             top_determinants = cursor.fetchall()
             for i, (criteria, count) in enumerate(top_determinants, 1):
-                st.write(f"{i}. **{criteria}**: {count} studies")
-            
-            conn_local.close()
+                # Clean the criteria text to remove markdown formatting
+                clean_criteria = sanitize_metadata_text(criteria)
+                st.write(f"{i}. **{clean_criteria}**: {count} studies")
 
 def query_paragraphs(conn, criteria, energy_method, direction, selected_scales=None, selected_dominant_climates=None):
     """Query paragraphs with filters - handle climate codes case-insensitively"""
@@ -6305,8 +6347,8 @@ def render_contribute_tab():
     """Render the Contribute tab content"""
     st.title("Contribute to the SpatialBuild Energy project.")
     whats_next_html = ("""
-    Sign up or log in to add your study or reference, sharing determinants, energy outputs and their relationships. If approved your contribution will be added to the database. Your help will improve this resource for urban planners, developers, and policymakers.</p>
-    Let's work together to optimize macro-scale energy use and create sustainable cities. <br><strong>Dive in and explore today.</strong>"""
+    Sign up or log in to add your study or reference, sharing determinants, energy outputs and their relationships. If approved your contribution will be added to the database. Your help will improve this resource for designers, urban planners, developers, and policymakers.</p>
+    """
     )
     st.markdown(whats_next_html, unsafe_allow_html=True)
     
@@ -6388,7 +6430,7 @@ def render_user_sidebar():
 def render_guest_sidebar():
     """Render sidebar for non-logged in users"""
     st.sidebar.header("Welcome to SpatialBuild Energy")
-    guest_info = "Log in or sign up to contribute to our database of energy studies and help build sustainable cities."
+    guest_info = "Log in or sign up to contribute to the SpatialBuild Energy project."
     st.sidebar.write(guest_info, unsafe_allow_html=True)
 
 
@@ -6403,7 +6445,7 @@ def render_spatialbuild_tab(enable_editing=False):
     how_it_works_html = ("""
     1. Pick Your Focus: Choose the determinant you want to explore.<br>
     2. Select Energy Outputs: For example energy use intensity or heating demand.<br>
-    3. Filter your Results and access the relevant study via links provided."""
+    3. Filter your results and access the relevant study via links provided."""
     )
     st.markdown(how_it_works_html, unsafe_allow_html=True)
     
