@@ -11,12 +11,13 @@ import bcrypt
 import time
 from contextlib import contextmanager
 from typing import List, Dict, Tuple
-
+from db_wrapper import DatabaseWrapper
 
 load_dotenv()
 
-db_file = 'my_database.db'
-conn = sqlite3.connect(db_file)
+# Initialize database wrapper in session state
+if 'db' not in st.session_state:
+    st.session_state.db = DatabaseWrapper()
 
 # Initialize session state variables
 if "current_tab" not in st.session_state:
