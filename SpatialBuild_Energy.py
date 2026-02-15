@@ -108,21 +108,33 @@ def sanitize_metadata_text(text):
     return text.strip()
 
 def query_approved_criteria():
-    """Get approved criteria from database"""
-    data = st.session_state.db.get_energy_data({'status': 'approved'})
+    """Get criteria from non-rejected records (includes NULL, approved, pending)"""
+    all_records = st.session_state.db.get_energy_data(limit=5000)
+    
+    # Filter out rejected records
+    valid_records = [r for r in all_records if r.get('status') != 'rejected']
+    
+    # Get unique criteria
     criteria = set()
-    for record in data:
+    for record in valid_records:
         if record.get('criteria'):
             criteria.add(record['criteria'])
+    
     return [(c,) for c in sorted(criteria)]
 
 def query_approved_energy_outputs():
-    """Get approved energy outputs from database"""
-    data = st.session_state.db.get_energy_data({'status': 'approved'})
+    """Get energy outputs from non-rejected records (includes NULL, approved, pending)"""
+    all_records = st.session_state.db.get_energy_data(limit=5000)
+    
+    # Filter out rejected records
+    valid_records = [r for r in all_records if r.get('status') != 'rejected']
+    
+    # Get unique energy outputs
     outputs = set()
-    for record in data:
+    for record in valid_records:
         if record.get('energy_method'):
             outputs.add(record['energy_method'])
+    
     return [(o,) for o in sorted(outputs)]
 
 def contribute():
@@ -869,8 +881,16 @@ def reset_location_climate_scale_data():
 
 def query_dominant_climate_options():
     """Get ONLY valid Köppen climate classifications with descriptions and color glyphs"""
-    # Get distinct climate values from database
-    climate_values = st.session_state.db.get_distinct_values('climate')
+    # Get all non-rejected records
+    all_records = st.session_state.db.get_energy_data(limit=5000)
+    valid_records = [r for r in all_records if r.get('status') != 'rejected']
+    
+    # Get distinct climate values from valid records
+    climate_values = set()
+    for record in valid_records:
+        climate = record.get('climate')
+        if climate and climate not in ['Awaiting data', '']:
+            climate_values.add(climate)
     
     # Define ONLY the allowed Köppen climate classifications with descriptions
     koppen_climates_with_descriptions = {
@@ -917,36 +937,14 @@ def query_dominant_climate_options():
     
     # Color to emoji mapping
     color_to_emoji = {
-        '#0000FE': '🟦',  # Af
-        '#0077FD': '🟦',  # Am
-        '#44A7F8': '🟦',  # Aw
-        '#FD0000': '🟥',  # BWh
-        '#F89292': '🟥',  # BWk
-        '#F4A400': '🟧',  # BSh
-        '#FEDA60': '🟨',  # BSk
-        '#FFFE04': '🟨',  # Csa
-        '#CDCE08': '🟨',  # Csb
-        '#95FE97': '🟩',  # Cwa
-        '#62C764': '🟩',  # Cwb
-        '#379632': '🟩',  # Cwc
-        '#C5FF4B': '🟩',  # Cfa
-        '#64FD33': '🟩',  # Cfb
-        '#36C901': '🟩',  # Cfc
-        '#FE01FC': '🟪',  # Dsa
-        '#CA03C2': '🟪',  # Dsb
-        '#973396': '🟪',  # Dsc
-        '#8C5D91': '🟪',  # Dsd
-        '#A5ADFE': '🟦',  # Dwa
-        '#4A78E7': '🟦',  # Dwb
-        '#48DDB1': '🟦',  # Dwc
-        '#32028A': '🟪',  # Dwd
-        '#01FEFC': '🟦',  # Dfa
-        '#3DC6FA': '🟦',  # Dfb
-        '#037F7F': '🟦',  # Dfc
-        '#004860': '🟦',  # Dfd
-        '#AFB0AB': '⬜',  # ET
-        '#686964': '⬛',  # EF
-        '#999999': '⬜',  # Gray for special cases
+        '#0000FE': '🟦', '#0077FD': '🟦', '#44A7F8': '🟦',
+        '#FD0000': '🟥', '#F89292': '🟥', '#F4A400': '🟧', '#FEDA60': '🟨',
+        '#FFFE04': '🟨', '#CDCE08': '🟨', '#95FE97': '🟩', '#62C764': '🟩',
+        '#379632': '🟩', '#C5FF4B': '🟩', '#64FD33': '🟩', '#36C901': '🟩',
+        '#FE01FC': '🟪', '#CA03C2': '🟪', '#973396': '🟪', '#8C5D91': '🟪',
+        '#A5ADFE': '🟦', '#4A78E7': '🟦', '#48DDB1': '🟦', '#32028A': '🟪',
+        '#01FEFC': '🟦', '#3DC6FA': '🟦', '#037F7F': '🟦', '#004860': '🟦',
+        '#AFB0AB': '⬜', '#686964': '⬛', '#999999': '⬜',
     }
     
     # Filter to ONLY include valid Köppen classifications and special cases
@@ -1919,64 +1917,172 @@ def render_enhanced_papers_tab():
     
     is_admin = st.session_state.get("user_role") == "admin"
     
-    if is_admin:
-        render_papers_tab()
-    else:
-        view_tab1, view_tab2 = st.tabs(["Search Studies", "Statistics"])
-        
-        with view_tab1:
-            render_papers_tab()
+    # Everyone gets both tabs now - admins and regular users
+    view_tab1, view_tab2 = st.tabs(["Search Studies", "Statistics"])
     
-        with view_tab2:
-            st.subheader("Database Statistics")
+    with view_tab1:
+        render_papers_tab()
+    
+    with view_tab2:
+        st.subheader("Database Statistics")
+        
+        # Get all non-rejected records
+        all_records = st.session_state.db.get_energy_data(limit=5000)
+        valid_records = [r for r in all_records if r.get('status') != 'rejected']
+        
+        if valid_records:
+            # First, identify unique studies by paragraph content
+            study_map = {}  # Map paragraph -> first record with that paragraph
+            for record in valid_records:
+                para = record.get('paragraph')
+                if para and para not in ['0', '0.0', '', None]:
+                    if para not in study_map:
+                        study_map[para] = record
             
-            all_records = st.session_state.db.get_energy_data(limit=1000)
+            unique_studies = list(study_map.values())
+            total_studies = len(unique_studies)
+            total_records = len(valid_records)
             
-            if all_records:
-                total_records = len(all_records)
-                unique_determinants = len(set(r.get('criteria') for r in all_records if r.get('criteria')))
-                unique_outputs = len(set(r.get('energy_method') for r in all_records if r.get('energy_method')))
-                unique_locations = len(set(r.get('location') for r in all_records if r.get('location')))
-                unique_climates = len(set(r.get('climate') for r in all_records if r.get('climate')))
+            # Display both for comparison
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Total Records (with duplicates)", total_records)
+            with col2:
+                st.metric("Unique Studies", total_studies)
+            
+            st.divider()
+            
+            # Count unique values across all records
+            unique_determinants = set(r.get('criteria') for r in valid_records if r.get('criteria'))
+            unique_outputs = set(r.get('energy_method') for r in valid_records if r.get('energy_method'))
+            unique_locations = set(r.get('location') for r in valid_records if r.get('location') and r.get('location') not in ['', None])
+            unique_climates = set(r.get('climate') for r in valid_records if r.get('climate') and r.get('climate') not in ['Awaiting data', ''])
+            unique_contributors = set(r.get('user') for r in valid_records if r.get('user'))
+            
+            # Display in columns
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Unique Determinants", len(unique_determinants))
+                st.metric("Unique Energy Outputs", len(unique_outputs))
+            
+            with col2:
+                st.metric("Unique Locations", len(unique_locations))
+                st.metric("Unique Climates", len(unique_climates))
+            
+            with col3:
+                st.metric("Unique Contributors", len(unique_contributors))
+            
+            st.divider()
+            
+            # Show climate code distribution
+            st.subheader("Climate Code Distribution (by unique study)")
+            
+            # Define climate descriptions
+            climate_descriptions = {
+                'Af': 'Tropical Rainforest', 'Am': 'Tropical Monsoon', 'Aw': 'Tropical Savanna',
+                'BWh': 'Hot Desert', 'BWk': 'Cold Desert', 'BSh': 'Hot Semi-arid', 'BSk': 'Cold Semi-arid',
+                'Cfa': 'Humid Subtropical', 'Cfb': 'Oceanic', 'Cfc': 'Subpolar Oceanic',
+                'Csa': 'Hot-summer Mediterranean', 'Csb': 'Warm-summer Mediterranean',
+                'Cwa': 'Monsoon-influenced Humid Subtropical',
+                'Dfa': 'Hot-summer Humid Continental', 'Dfb': 'Warm-summer Humid Continental', 
+                'Dfc': 'Subarctic', 'Dfd': 'Extremely Cold Subarctic',
+                'Dwa': 'Monsoon-influenced Hot-summer Humid Continental',
+                'Dwb': 'Monsoon-influenced Warm-summer Humid Continental',
+                'Dwc': 'Monsoon-influenced Subarctic',
+                'Dwd': 'Monsoon-influenced Extremely Cold Subarctic',
+                'ET': 'Tundra', 'EF': 'Ice Cap',
+                'Var': 'Varies / Multiple Climates'
+            }
+            
+            # Count climates by UNIQUE STUDY
+            climate_counts = {}
+            for study in unique_studies:
+                climate = study.get('climate')
+                if climate and climate not in ['Awaiting data', '']:
+                    climate_code = climate
+                    if " - " in str(climate):
+                        climate_code = climate.split(" - ")[0]
+                    climate_code = ''.join([c for c in str(climate_code) if c.isalnum()])
+                    climate_counts[climate_code] = climate_counts.get(climate_code, 0) + 1
+            
+            if climate_counts:
+                sorted_climates = sorted(climate_counts.items(), key=lambda x: x[1], reverse=True)
+                max_count = max(count for _, count in sorted_climates)
                 
-                col1, col2, col3 = st.columns(3)
+                for climate_code, count in sorted_climates:
+                    description = climate_descriptions.get(climate_code, '')
+                    color = get_climate_color(climate_code)
+                    width_percent = (count / max_count) * 100
+                    
+                    col_desc, col_bar = st.columns([1.2, 3])
+                    
+                    with col_desc:
+                        if description:
+                            desc_html = f'''
+                            <div style="display: flex; align-items: center; height: 32px; margin: 2px 0;">
+                                <span style="font-style: italic; color: #555; font-size: 0.9em;">{description}</span>
+                            </div>
+                            '''
+                            st.markdown(desc_html, unsafe_allow_html=True)
+                        else:
+                            desc_html = f'''
+                            <div style="display: flex; align-items: center; height: 32px; margin: 2px 0;">
+                                <span style="font-weight: 500; font-size: 0.9em;">{climate_code}</span>
+                            </div>
+                            '''
+                            st.markdown(desc_html, unsafe_allow_html=True)
+                    
+                    with col_bar:
+                        bar_html = f'''
+                        <div style="display: flex; align-items: center; margin: 2px 0; width: 100%; height: 32px;">
+                            <div style="
+                                width: {width_percent}%;
+                                background-color: {color};
+                                height: 24px;
+                                border-radius: 4px;
+                                display: flex;
+                                align-items: center;
+                                padding-left: 8px;
+                                color: black;
+                                font-weight: 500;
+                                min-width: 50px;
+                                white-space: nowrap;
+                            ">
+                                {climate_code}
+                            </div>
+                            <div style="margin-left: 10px; font-weight: 500; color: #333; min-width: 30px;">
+                                {count}
+                            </div>
+                        </div>
+                        '''
+                        st.markdown(bar_html, unsafe_allow_html=True)
                 
-                with col1:
-                    st.metric("Total Records", total_records)
-                    st.metric("Unique Determinants", unique_determinants)
-                
-                with col2:
-                    st.metric("Total Studies", total_records)
-                    st.metric("Unique Locations", unique_locations)
-                
-                with col3:
-                    st.metric("Unique Energy Outputs", unique_outputs)
-                    st.metric("Unique Climates", unique_climates)
-                
-                # Show climate distribution
-                st.subheader("Climate Code Distribution")
-                
-                climate_counts = {}
-                for record in all_records:
-                    climate = record.get('climate')
-                    if climate and climate not in ['Awaiting data', '']:
-                        climate_counts[climate] = climate_counts.get(climate, 0) + 1
-                
-                if climate_counts:
-                    for climate, count in sorted(climate_counts.items(), key=lambda x: x[1], reverse=True)[:10]:
-                        color = get_climate_color(climate)
-                        st.markdown(
-                            f"<div style='display: flex; align-items: center; margin: 5px 0;'>"
-                            f"<span style='background-color: {color}; width: 20px; height: 20px; border-radius: 4px; margin-right: 10px;'></span>"
-                            f"<span style='flex: 1;'>{climate}</span>"
-                            f"<span style='font-weight: bold;'>{count}</span>"
-                            f"</div>",
-                            unsafe_allow_html=True
-                        )
-                else:
-                    st.info("No climate data available")
+                st.caption(f"Total studies with climate data: {sum(climate_counts.values())} out of {total_studies} unique studies")
             else:
-                st.info("No data available for statistics")
+                st.info("No climate data available")
+            
+            st.divider()
+            
+            # Show top determinants
+            st.subheader("Most Studied Determinants (by unique study)")
+            
+            determinant_counts = {}
+            for study in unique_studies:
+                criteria = study.get('criteria')
+                if criteria:
+                    clean_criteria = sanitize_metadata_text(criteria)
+                    determinant_counts[clean_criteria] = determinant_counts.get(clean_criteria, 0) + 1
+            
+            if determinant_counts:
+                sorted_determinants = sorted(determinant_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+                for i, (criteria, count) in enumerate(sorted_determinants, 1):
+                    st.write(f"{i}. **{criteria}**: {count} studies")
+            else:
+                st.info("No determinant data available")
+            
+        else:
+            st.info("No data available for statistics")
 
 def render_papers_tab():
     """Render the Studies tab with search functionality"""
@@ -2320,8 +2426,20 @@ def render_papers_tab():
         st.info("Enter a search term above and press Enter to find studies in the database.")
 
 def query_dynamic_scale_options():
-    """Get unique scale values from the database"""
-    return st.session_state.db.get_distinct_values('scale')
+    """Get unique scale values from non-rejected records"""
+    all_records = st.session_state.db.get_energy_data(limit=5000)
+    
+    # Filter out rejected records
+    valid_records = [r for r in all_records if r.get('status') != 'rejected']
+    
+    # Get unique scales
+    scales = set()
+    for record in valid_records:
+        scale = record.get('scale')
+        if scale and scale not in ['Awaiting data', '']:
+            scales.add(scale)
+    
+    return sorted(list(scales))
 
 def render_contribute_tab():
     """Render the Contribute tab content"""
