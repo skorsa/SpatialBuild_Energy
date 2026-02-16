@@ -74,47 +74,72 @@ class DatabaseWrapper:
             return cursor.fetchall()
     
     def search_energy_data(self, search_term, fields=None, limit=100):
-        """Search across multiple fields"""
+        """Search across multiple fields including ID"""
+        print(f"🔍 search_energy_data called with: '{search_term}'")
+        
         if not search_term:
             return []
         
         if self.use_supabase:
             # Default fields to search
             if fields is None:
-                fields = ['paragraph', 'criteria', 'energy_method', 'location', 'climate']
+                fields = ['paragraph', 'criteria', 'energy_method', 'location', 'climate', 'building_use', 'approach']
             
+            # Start with a base query
             query = self.supabase.table('energy_data').select('*')
             
-            # Build OR condition for all fields
-            or_conditions = []
-            for field in fields:
-                or_conditions.append(f"{field}.ilike.%{search_term}%")
-            
-            if or_conditions:
+            # Build filter conditions
+            if search_term.isdigit():
+                # If it's a number, search by ID OR text fields
+                id_num = int(search_term)
+                
+                # Build OR conditions for text fields
+                or_conditions = []
+                for field in fields:
+                    or_conditions.append(f"{field}.ilike.%{search_term}%")
+                
+                # Add ID condition
+                id_condition = f"id.eq.{id_num}"
+                
+                # Combine: (id = X) OR (text fields LIKE %X%)
+                all_conditions = [id_condition] + or_conditions
+                query = query.or_(",".join(all_conditions))
+            else:
+                # Just search text fields
+                or_conditions = []
+                for field in fields:
+                    or_conditions.append(f"{field}.ilike.%{search_term}%")
                 query = query.or_(",".join(or_conditions))
             
-            # Only show approved/relevant records
+            # Filter out rejected records
             query = query.not_.eq('status', 'rejected')
             
-            if limit:
-                query = query.limit(limit)
+            # Add limit and order
+            query = query.order('id', desc=True).limit(limit)
             
+            # Execute
             result = query.execute()
             return result.data
+        
         else:
+            # SQLite mode
             cursor = self.conn.cursor()
             search_pattern = f'%{search_term}%'
             
             if fields is None:
-                fields = ['paragraph', 'criteria', 'energy_method', 'location', 'climate']
+                fields = ['paragraph', 'criteria', 'energy_method', 'location', 'climate', 'building_use', 'approach']
             
-            where_clauses = [f"{field} LIKE ?" for field in fields]
-            params = [search_pattern] * len(fields)
+            # Include ID in SQLite search
+            id_condition = "CAST(id AS TEXT) LIKE ?"
+            field_conditions = [f"{field} LIKE ?" for field in fields]
+            all_conditions = [id_condition] + field_conditions
+            params = [search_pattern] * (len(fields) + 1)
             
             sql = f"""
                 SELECT * FROM energy_data 
-                WHERE ({' OR '.join(where_clauses)})
+                WHERE ({' OR '.join(all_conditions)})
                 AND status != 'rejected'
+                ORDER BY id DESC
                 LIMIT {limit}
             """
             

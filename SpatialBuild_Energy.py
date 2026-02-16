@@ -1591,6 +1591,7 @@ def manage_scale_climate_data():
     
     st.subheader("Edit Records - Full Record Management")
     
+    # Initialize search state
     if "admin_edit_search_performed" not in st.session_state:
         st.session_state.admin_edit_search_performed = False
     if "admin_edit_search_results" not in st.session_state:
@@ -1601,46 +1602,73 @@ def manage_scale_climate_data():
         st.session_state.admin_edit_selected_id = None
     if "admin_edit_trigger_search" not in st.session_state:
         st.session_state.admin_edit_trigger_search = False
+    if "admin_edit_clear_triggered" not in st.session_state:
+        st.session_state.admin_edit_clear_triggered = False
     
+    # Force the current tab to be Edit/Review
     st.session_state.current_tab = "tab3"
     
+    # Search input - triggers on Enter
     def on_search_change():
-        if st.session_state.admin_edit_search_input.strip():
+        current_value = st.session_state.admin_edit_search_input
+        if current_value.strip():
+            # If there's text, trigger search
             st.session_state.admin_edit_trigger_search = True
+            st.session_state.admin_edit_search_query = current_value
+        else:
+            # If text is empty, clear everything
+            st.session_state.admin_edit_search_performed = False
+            st.session_state.admin_edit_search_results = []
+            st.session_state.admin_edit_search_query = ""
+            st.session_state.admin_edit_selected_id = None
+            st.session_state.admin_edit_trigger_search = False
+    
+    # Determine the current value for the search input
+    if st.session_state.admin_edit_clear_triggered:
+        # If clear was clicked, use empty string
+        current_value = ""
+        st.session_state.admin_edit_clear_triggered = False
+    else:
+        current_value = st.session_state.admin_edit_search_query
     
     search_query = st.text_input(
         "Search records",
         placeholder="Enter record ID, study title, location, climate code, sample size... (press Enter to search)",
         key="admin_edit_search_input",
-        value=st.session_state.admin_edit_search_query,
+        value=current_value,
         on_change=on_search_change
     )
     
-    if st.session_state.admin_edit_trigger_search:
-        search_query = st.session_state.admin_edit_search_input
+    # Process search if triggered
+    if st.session_state.admin_edit_trigger_search and search_query.strip():
         st.session_state.admin_edit_trigger_search = False
         st.session_state.admin_edit_search_query = search_query
         st.session_state.admin_edit_search_performed = True
         st.session_state.admin_edit_selected_id = None
         
         with st.spinner("Searching records..."):
-            # Use wrapper's search method
+            # Use the wrapper's search method
             results = st.session_state.db.search_energy_data(search_query, limit=200)
             st.session_state.admin_edit_search_results = results
     
+    # Clear search button
     if st.session_state.admin_edit_search_performed:
         col_clear = st.columns([1])[0]
         with col_clear:
             if st.button("✕ Clear Search Results", key="admin_edit_clear_btn", use_container_width=True):
+                # Set flag to clear the input on next rerun
+                st.session_state.admin_edit_clear_triggered = True
+                # Clear all search-related state
                 st.session_state.admin_edit_search_performed = False
                 st.session_state.admin_edit_search_results = []
                 st.session_state.admin_edit_search_query = ""
                 st.session_state.admin_edit_selected_id = None
-                st.session_state.current_tab = "tab3"
+                st.session_state.admin_edit_trigger_search = False
                 st.rerun()
     
     st.markdown("---")
     
+    # ============= RESULTS AND SELECTION =============
     if st.session_state.admin_edit_search_performed and not st.session_state.admin_edit_selected_id:
         results = st.session_state.admin_edit_search_results
         
@@ -1650,8 +1678,10 @@ def manage_scale_climate_data():
         
         st.success(f"Found {len(results)} records matching '{st.session_state.admin_edit_search_query}'")
         
-        st.markdown("### Select a Record to Edit")
+        # Create dropdown of search results
+        st.markdown("### Select Record to Edit")
         
+        # Format options for dropdown
         edit_options = {}
         for record in results:
             record_id = record['id']
@@ -1670,15 +1700,18 @@ def manage_scale_climate_data():
             
             edit_options[label] = record_id
         
+        # Sort options by ID (descending)
         sorted_options = sorted(edit_options.items(), key=lambda x: x[1], reverse=True)
         
+        # Dropdown for selection
         if sorted_options:
             selected_option = st.selectbox(
-                '',
+                "Choose a record to edit:",
                 options=["-- Select a record --"] + [opt[0] for opt in sorted_options],
                 key="admin_edit_record_selector"
             )
             
+            # When a record is selected
             if selected_option != "-- Select a record --":
                 selected_id = edit_options[selected_option]
                 
@@ -1689,6 +1722,7 @@ def manage_scale_climate_data():
             
             st.caption(f"Showing {len(results)} records. Select one to edit.")
     
+    # ============= EDIT FORM FOR SELECTED RECORD =============
     if st.session_state.admin_edit_selected_id:
         record_id = st.session_state.admin_edit_selected_id
         
@@ -1733,7 +1767,7 @@ def manage_scale_climate_data():
                 st.session_state.current_tab = "tab3"
                 st.rerun()
     
-    elif not st.session_state.admin_edit_search_performed:
+    elif not st.session_state.admin_edit_search_performed and not st.session_state.admin_edit_selected_id:
         st.info("Enter a search term above and press Enter to find records to edit")
 
 def review_pending_data():
@@ -1948,35 +1982,34 @@ def render_enhanced_papers_tab():
             total_studies = len(unique_studies)
             total_records = len(valid_records)
             
-            # Display both for comparison
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Total Records", total_records)
-            with col2:
-                st.metric("Unique Studies", total_studies)
-            
-            st.divider()
-            
             # Count unique values across all records
             unique_determinants = set(r.get('criteria') for r in valid_records if r.get('criteria'))
             unique_outputs = set(r.get('energy_method') for r in valid_records if r.get('energy_method'))
             unique_locations = set(r.get('location') for r in valid_records if r.get('location') and r.get('location') not in ['', None])
             unique_climates = set(r.get('climate') for r in valid_records if r.get('climate') and r.get('climate') not in ['Awaiting data', ''])
             unique_contributors = set(r.get('user') for r in valid_records if r.get('user'))
+
+            # Display both for comparison
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Records", total_records)
+            with col2:
+                st.metric("Unique Studies", total_studies)
+            with col3:
+                st.metric("Unique Determinants", len(unique_determinants))
+            
             
             # Display in columns
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             
             with col1:
-                st.metric("Unique Determinants", len(unique_determinants))
                 st.metric("Unique Energy Outputs", len(unique_outputs))
-            
+
             with col2:
                 st.metric("Unique Locations", len(unique_locations))
-                st.metric("Unique Climates", len(unique_climates))
             
-            # with col3:
-            #      st.metric("Unique Contributors", len(unique_contributors))
+            with col3:
+                st.metric("Unique Climates", len(unique_climates))
             
             st.divider()
             
@@ -2112,33 +2145,7 @@ def render_papers_tab():
     if "papers_sort_ascending" not in st.session_state:
         st.session_state.papers_sort_ascending = True
     
-    st.markdown("""
-    <style>
-    div[data-testid="column"]:has(button[key*="papers_prev"]),
-    div[data-testid="column"]:has(button[key*="papers_next"]) {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-    }
-    
-    div[data-testid="column"]:has(p:contains("Page")) {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        text-align: center;
-    }
-    
-    button[key*="papers_prev"], button[key*="papers_next"] {
-        width: 100px !important;
-    }
-    
-    button[key="papers_sort_direction"] {
-        font-size: 20px !important;
-        font-weight: bold !important;
-        padding: 0px 10px !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    # ============= SEARCH INTERFACE =============
     
     col1, col2, col3 = st.columns([3, 1.8, 0.5])
     
@@ -2159,7 +2166,7 @@ def render_papers_tab():
         
         search_query = st.text_input(
             "Search studies",
-            placeholder="Type to search by title, author, determinant, climate...",
+            placeholder="Type to search by ID, title, determinant, climate...",
             key="papers_search_input",
             label_visibility="collapsed",
             on_change=on_search_change,
@@ -2170,12 +2177,7 @@ def render_papers_tab():
         st.markdown("**Sort by**")
         sort_order = st.selectbox(
             "Sort results by",
-            ["Determinant", 
-             "Location", 
-             "Building Use", 
-             "Scale", 
-             "Climate", 
-             "Approach"],
+            ["Determinant", "Location", "Building Use", "Scale", "Climate", "Approach"],
             key="papers_sort",
             label_visibility="collapsed"
         )
@@ -2184,13 +2186,13 @@ def render_papers_tab():
         st.markdown("**Order**")
         sort_direction_label = "↑" if st.session_state.papers_sort_ascending else "↓"
         if st.button(sort_direction_label, key="papers_sort_direction", 
-                    help="Toggle sort direction (Ascending/Descending)", 
-                    use_container_width=True):
+                    help="Toggle sort direction", use_container_width=True):
             st.session_state.papers_sort_ascending = not st.session_state.papers_sort_ascending
             st.rerun()
     
     current_search = st.session_state.get("papers_search_input", "")
     
+    # Trigger search from on_change event
     if st.session_state.get("papers_search_triggered", False) and current_search:
         search_query = current_search
         st.session_state.papers_search_triggered = False
@@ -2199,10 +2201,14 @@ def render_papers_tab():
         st.session_state.papers_search_performed = True
         
         with st.spinner(f"Searching for '{search_query}'..."):
+            # Use the wrapper's search method which handles ID search correctly
             results = st.session_state.db.search_energy_data(search_query, limit=500)
             st.session_state.papers_current_results = results
             st.session_state.papers_current_page = 0
             st.rerun()
+    
+    # Rest of the function remains the same...
+    # [Keep all the display and pagination code as is]
     
     if (st.session_state.get("papers_search_performed", False) and 
         st.session_state.get("papers_last_query", "") and 
@@ -2499,6 +2505,7 @@ def render_login_signup_forms():
 def render_admin_sidebar():
     """Render admin-specific sidebar"""
     st.sidebar.header("Admin Dashboard")
+       
     welcome_admin_dashboard = f"""As Admin you can Add and Edit or 
     Delete existing records under the SpatialBuild Energy tab.<br>
     You can accept or reject new user submissions under the Review Pending Contributions tab. <br>
@@ -2506,6 +2513,11 @@ def render_admin_sidebar():
     You can also remove and re-import location, climate and scale data from your excel file."""
     st.sidebar.write(welcome_admin_dashboard, unsafe_allow_html=True)
     
+        # Add persistent user info
+    st.sidebar.divider()
+    st.sidebar.info(f" **Logged in as:** {st.session_state.current_user} (Admin)")
+
+
     if st.sidebar.button("logout"):
         logout()
         st.rerun()
@@ -2513,18 +2525,30 @@ def render_admin_sidebar():
 def render_user_sidebar():
     """Render regular user sidebar"""
     st.sidebar.header(f"Welcome back {st.session_state.current_user}")
+    
     welcome_user_dashboard = f"As a logged in user you can add your findings to the dataset under the contribute tab.<br>1. Select the relevant determinant.<br>2. Select energy output.<br>3. Select the relationship direction.<br>4. Add your entry and click Save.<br>Your entry will be submitted pending verification.<br>If your study references new or unlisted determinant/energy output types you can add them by choosing Add new determinant/Add new energy output."
     st.sidebar.write(welcome_user_dashboard, unsafe_allow_html=True)
     
+        # Add persistent user info
+    st.sidebar.divider()    
+    st.sidebar.info(f" **Logged in as:** {st.session_state.current_user}")
+
     if st.sidebar.button("logout"):
         logout()
         st.rerun()
 
 def render_guest_sidebar():
     """Render sidebar for non-logged in users"""
-    st.sidebar.header("Welcome to SpatialBuild Energy")
-    guest_info = "Log in or sign up to contribute to the SpatialBuild Energy project."
+    st.sidebar.header("SpatialBuild Energy")
+    
+    guest_info = "Log in or sign up under the Contribute tab to contribute to the project."
     st.sidebar.write(guest_info, unsafe_allow_html=True)
+    st.sidebar.divider()
+    
+    # # Navigation button to Contribute tab
+    # if st.sidebar.button("🔐 Login / Sign Up", key="guest_login_btn", use_container_width=True):
+    #     st.session_state.current_tab = "tab2"
+    #     st.rerun()
 
 def render_spatialbuild_tab(enable_editing=False):
     """Render the main SpatialBuild Energy tab with welcome message and search"""
@@ -2942,9 +2966,7 @@ def render_unified_search_interface(enable_editing=False):
             # No energy output selected - don't show direction options at all
             selected_direction = None
 
-        # Add debug to see what's being selected
         if selected_direction:
-            #st.sidebar.write(f"Selected direction: {selected_direction}")
             if selected_direction:
                 # Filters
                 col_scale, col_climate = st.columns(2)
@@ -3389,14 +3411,57 @@ def render_unified_search_interface(enable_editing=False):
         st.info("Use the filters above to explore the database")
 
 # MAIN APP LAYOUT
+# MAIN APP LAYOUT
 if "current_tab" not in st.session_state:
     st.session_state.current_tab = "tab0"
 
+# Create tabs based on login status
 if st.session_state.logged_in:
     if st.session_state.current_user == "admin":
-        # Admin view
         tab_labels = ["SpatialBuild Energy", "Studies", "Contribute", "Edit/Review"]
-        tabs = st.tabs(tab_labels)
+    else:
+        tab_labels = ["SpatialBuild Energy", "Studies", "Contribute", "Your Contributions"]
+else:
+    tab_labels = ["SpatialBuild Energy", "Studies", "Contribute"]
+
+# Create tabs
+tabs = st.tabs(tab_labels)
+
+# Map tab names to indices
+tab_indices = {name: i for i, name in enumerate(tab_labels)}
+
+# Determine which tab to show based on session state
+if st.session_state.current_tab == "tab0":
+    active_tab_index = 0
+elif st.session_state.current_tab == "tab1":
+    active_tab_index = 1
+elif st.session_state.current_tab == "tab2":
+    active_tab_index = 2
+elif st.session_state.current_tab == "tab3" and len(tab_labels) > 3:
+    active_tab_index = 3
+else:
+    active_tab_index = 0
+
+# Use JavaScript to switch to the active tab
+if active_tab_index > 0:
+    st.markdown(f"""
+    <script>
+    // Function to click the correct tab
+    function switchToTab() {{
+        const tabs = window.parent.document.querySelectorAll('button[data-baseweb="tab"]');
+        if (tabs && tabs.length > {active_tab_index}) {{
+            tabs[{active_tab_index}].click();
+        }}
+    }}
+    
+    // Run after a short delay to ensure DOM is ready
+    setTimeout(switchToTab, 100);
+    </script>
+    """, unsafe_allow_html=True)
+
+# Now render the tab content
+if st.session_state.logged_in:
+    if st.session_state.current_user == "admin":
         tab0, tab1, tab2, tab3 = tabs
         
         with tab0:
@@ -3428,11 +3493,8 @@ if st.session_state.logged_in:
             st.session_state.current_tab = "tab3"
         
         render_admin_sidebar()
-
-    else:  
-        # Regular user view
-        tab_labels = ["SpatialBuild Energy", "Studies", "Contribute", "Your Contributions"]
-        tabs = st.tabs(tab_labels)
+        
+    else:
         tab0, tab1, tab2, tab3 = tabs
         
         with tab0:
@@ -3453,10 +3515,7 @@ if st.session_state.logged_in:
         
         render_user_sidebar()
 
-else:  
-    # Not logged in view
-    tab_labels = ["SpatialBuild Energy", "Studies", "Contribute"]
-    tabs = st.tabs(tab_labels)
+else:
     tab0, tab1, tab2 = tabs
     
     with tab0:
