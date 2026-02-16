@@ -248,24 +248,145 @@ class DatabaseWrapper:
             )
             self.conn.commit()
             return cursor.lastrowid
-    
+
     # ============= INSERT/UPDATE METHODS =============
-    
+    def get_next_id(self, table='energy_data'):
+        """Get the next available ID by finding the max current ID and adding 1"""
+        if self.use_supabase:
+            try:
+                # Get all IDs, sorted descending, limit 1
+                result = self.supabase.table(table).select('id').order('id', desc=True).limit(1).execute()
+                if result.data and len(result.data) > 0:
+                    next_id = result.data[0]['id'] + 1
+                else:
+                    next_id = 1  # Start at 1 if no records
+                print(f"Next ID for {table}: {next_id}")
+                return next_id
+            except Exception as e:
+                print(f"Error getting next ID: {e}")
+                return 1  # Default to 1 on error
+        else:
+            cursor = self.conn.cursor()
+            cursor.execute(f"SELECT MAX(id) FROM {table}")
+            max_id = cursor.fetchone()[0]
+            return (max_id or 0) + 1
+
     def insert_record(self, table, data):
         """Insert a new record"""
         if self.use_supabase:
-            result = self.supabase.table(table).insert(data).execute()
-            return result.data
+            # Make a copy to avoid modifying the original
+            insert_data = data.copy()
+            
+            # Remove id if it exists (we'll set our own)
+            if 'id' in insert_data:
+                print(f"⚠️ Removing existing id field: {insert_data['id']}")
+                del insert_data['id']
+            
+            # Get the next available ID
+            next_id = self.get_next_id(table)
+            insert_data['id'] = next_id
+            
+            print(f"📦 Inserting with ID: {next_id}")
+            print(f"📦 Data keys: {list(insert_data.keys())}")
+            
+            try:
+                result = self.supabase.table(table).insert(insert_data).execute()
+                print(f"✅ Insert successful with ID: {next_id}")
+                return result.data
+            except Exception as e:
+                print(f"❌ Insert error: {e}")
+                # If there's a duplicate key error, try one more time with a new ID
+                if 'duplicate key' in str(e).lower():
+                    next_id = self.get_next_id(table)  # Get fresh ID
+                    insert_data['id'] = next_id
+                    print(f"🔄 Retrying with new ID: {next_id}")
+                    result = self.supabase.table(table).insert(insert_data).execute()
+                    return result.data
+                else:
+                    raise e
         else:
+            # SQLite version
             cursor = self.conn.cursor()
-            columns = ', '.join(data.keys())
-            placeholders = ', '.join(['?' for _ in data])
-            values = list(data.values())
+            insert_data = data.copy()
+            if 'id' in insert_data:
+                del insert_data['id']
+                
+            columns = ', '.join(insert_data.keys())
+            placeholders = ', '.join(['?' for _ in insert_data])
+            values = list(insert_data.values())
             
             sql = f"INSERT INTO {table} ({columns}) VALUES ({placeholders})"
             cursor.execute(sql, values)
             self.conn.commit()
             return cursor.lastrowid
+
+    def update_record(self, table, record_id, data):
+        """Update an existing record"""
+        if self.use_supabase:
+            result = self.supabase.table(table).update(data).eq('id', record_id).execute()
+            return result.data
+        else:
+            cursor = self.conn.cursor()
+            set_clause = ', '.join([f"{k} = ?" for k in data.keys()])
+            values = list(data.values()) + [record_id]
+            
+            sql = f"UPDATE {table} SET {set_clause} WHERE id = ?"
+            cursor.execute(sql, values)
+            self.conn.commit()
+            return cursor.rowcount
+
+    def get_non_rejected_records(self, limit=5000):
+        """Get all records that are not rejected (includes NULL, approved, pending)"""
+        if self.use_supabase:
+            # In Supabase, we need to use OR condition for status != 'rejected' OR status IS NULL
+            query = self.supabase.table('energy_data').select('*')
+            query = query.or_('status.neq.rejected,status.is.null')
+            if limit:
+                query = query.limit(limit)
+            result = query.execute()
+            return result.data
+        else:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT * FROM energy_data 
+                WHERE status != 'rejected' OR status IS NULL
+                LIMIT ?
+            """, (limit,))
+            return cursor.fetchall()
+
+    def update_record(self, table, record_id, data):
+        """Update an existing record"""
+        if self.use_supabase:
+            result = self.supabase.table(table).update(data).eq('id', record_id).execute()
+            return result.data
+        else:
+            cursor = self.conn.cursor()
+            set_clause = ', '.join([f"{k} = ?" for k in data.keys()])
+            values = list(data.values()) + [record_id]
+            
+            sql = f"UPDATE {table} SET {set_clause} WHERE id = ?"
+            cursor.execute(sql, values)
+            self.conn.commit()
+            return cursor.rowcount
+
+    def get_non_rejected_records(self, limit=5000):
+        """Get all records that are not rejected (includes NULL, approved, pending)"""
+        if self.use_supabase:
+            # In Supabase, we need to use OR condition for status != 'rejected' OR status IS NULL
+            query = self.supabase.table('energy_data').select('*')
+            query = query.or_('status.neq.rejected,status.is.null')
+            if limit:
+                query = query.limit(limit)
+            result = query.execute()
+            return result.data
+        else:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT * FROM energy_data 
+                WHERE status != 'rejected' OR status IS NULL
+                LIMIT ?
+            """, (limit,))
+            return cursor.fetchall()
     
     def update_record(self, table, record_id, data):
         """Update an existing record"""
