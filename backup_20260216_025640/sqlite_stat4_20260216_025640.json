@@ -1,0 +1,13 @@
+{
+  "schema": "CREATE TABLE sqlite_stat4(tbl,idx,neq,nlt,ndlt,sample)",
+  "data": [],
+  "columns": [
+    "tbl",
+    "idx",
+    "neq",
+    "nlt",
+    "ndlt",
+    "sample"
+  ],
+  "record_count": 0
+}

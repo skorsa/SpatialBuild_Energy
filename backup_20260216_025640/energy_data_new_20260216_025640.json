@@ -1,0 +1,20 @@
+{
+  "schema": "CREATE TABLE energy_data_new (\n            id INTEGER PRIMARY KEY AUTOINCREMENT,\n            criteria TEXT,\n            energy_method TEXT,\n            direction TEXT,\n            paragraph TEXT,\n            status TEXT DEFAULT 'pending',\n            user TEXT,\n            scale TEXT,\n            climate TEXT,\n            location TEXT,\n            building_use TEXT,\n            approach TEXT,\n            sample_size TEXT\n        )",
+  "data": [],
+  "columns": [
+    "id",
+    "criteria",
+    "energy_method",
+    "direction",
+    "paragraph",
+    "status",
+    "user",
+    "scale",
+    "climate",
+    "location",
+    "building_use",
+    "approach",
+    "sample_size"
+  ],
+  "record_count": 0
+}

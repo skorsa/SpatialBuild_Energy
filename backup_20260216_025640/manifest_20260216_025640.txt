@@ -1,0 +1,13 @@
+BACKUP MANIFEST
+==================================================
+Created: 2026-02-16 02:56:40
+Database: my_database.db
+Backup folder: backup_20260216_025640
+
+TABLE SUMMARY:
+  - users: 2 records
+  - sqlite_sequence: 2 records
+  - sqlite_stat1: 1 records
+  - sqlite_stat4: 0 records
+  - energy_data_new: 0 records
+  - energy_data: 766 records

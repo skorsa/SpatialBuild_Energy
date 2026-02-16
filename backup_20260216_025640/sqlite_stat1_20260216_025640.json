@@ -1,0 +1,25 @@
+{
+  "schema": "CREATE TABLE sqlite_stat1(tbl,idx,stat)",
+  "data": [
+    {
+      "tbl": {
+        "__bytes__": true,
+        "data": "dXNlcnM="
+      },
+      "idx": {
+        "__bytes__": true,
+        "data": "c3FsaXRlX2F1dG9pbmRleF91c2Vyc18x"
+      },
+      "stat": {
+        "__bytes__": true,
+        "data": "MiAx"
+      }
+    }
+  ],
+  "columns": [
+    "tbl",
+    "idx",
+    "stat"
+  ],
+  "record_count": 1
+}

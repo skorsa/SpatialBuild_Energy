@@ -1,0 +1,24 @@
+{
+  "schema": "CREATE TABLE sqlite_sequence(name,seq)",
+  "data": [
+    {
+      "name": {
+        "__bytes__": true,
+        "data": "dXNlcnM="
+      },
+      "seq": 38
+    },
+    {
+      "name": {
+        "__bytes__": true,
+        "data": "ZW5lcmd5X2RhdGE="
+      },
+      "seq": 766
+    }
+  ],
+  "columns": [
+    "name",
+    "seq"
+  ],
+  "record_count": 2
+}
