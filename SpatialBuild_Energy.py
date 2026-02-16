@@ -2454,7 +2454,7 @@ def query_dynamic_scale_options():
 
 def render_contribute_tab():
     """Render the Contribute tab content"""
-    st.title("Contribute to the SpatialBuild Energy project.")
+    st.title("Contribute to the SpatialBuild Energy Project.")
     whats_next_html = ("""
     Sign up or log in to add your study or reference, sharing determinants, energy outputs and their relationships. If approved your contribution will be added to the database. Your help will improve this resource for designers, urban planners, developers, and policymakers.</p>
     """
