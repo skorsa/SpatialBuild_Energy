@@ -225,7 +225,7 @@ def contribute():
         )
 
         st.markdown("---")
-        st.subheader("Additional Information (Optional)")
+        st.subheader("Additional Information")
 
         # First row: Scale, Climate, and Location
         col_1, col_2, col_3 = st.columns(3)
