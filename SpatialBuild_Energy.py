@@ -333,15 +333,20 @@ def contribute():
                     'sample_size': final_sample_size
                 }
 
-                # Insert using wrapper
-                st.session_state.db.insert_record('energy_data', record_data)
+                # Insert using wrapper and capture the result
+                result = st.session_state.db.insert_record('energy_data', record_data)
 
-                st.session_state.reset_form = True
-                st.success("New record submitted successfully. Thank you for your contribution. Status: pending verification")
+                # Get the new record ID
+                if result and len(result) > 0:
+                    new_id = result[0]['id']
+                    st.session_state.reset_form = True
+                    st.success(f"✅ Record #{new_id} submitted successfully. Thank you for your contribution. Status: pending verification")
+                else:
+                    st.session_state.reset_form = True
+                    st.success("New record submitted successfully. Thank you for your contribution. Status: pending verification")
+
                 time.sleep(2)
                 st.rerun()
-            else:
-                st.warning("Please ensure the record is not empty before saving.")
 
 def admin_import_and_match_studies_simple(uploaded_file):
     """
@@ -1946,7 +1951,7 @@ def render_enhanced_papers_tab():
             # Display both for comparison
             col1, col2 = st.columns(2)
             with col1:
-                st.metric("Total Records (with duplicates)", total_records)
+                st.metric("Total Records", total_records)
             with col2:
                 st.metric("Unique Studies", total_studies)
             
@@ -1960,7 +1965,7 @@ def render_enhanced_papers_tab():
             unique_contributors = set(r.get('user') for r in valid_records if r.get('user'))
             
             # Display in columns
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)
             
             with col1:
                 st.metric("Unique Determinants", len(unique_determinants))
@@ -1970,8 +1975,8 @@ def render_enhanced_papers_tab():
                 st.metric("Unique Locations", len(unique_locations))
                 st.metric("Unique Climates", len(unique_climates))
             
-            with col3:
-                st.metric("Unique Contributors", len(unique_contributors))
+            # with col3:
+            #      st.metric("Unique Contributors", len(unique_contributors))
             
             st.divider()
             
