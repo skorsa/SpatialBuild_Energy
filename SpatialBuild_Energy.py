@@ -2467,28 +2467,67 @@ def render_contribute_tab():
         render_login_signup_forms()
 
 def render_login_signup_forms():
-    """Render login and signup forms with email verification"""
+    """Render login and signup forms with email verification and password reset"""
     login_tab, signup_tab = st.tabs(["Login", "Sign Up"])
     
     with login_tab:
-        email = st.text_input("Email", placeholder="Enter your email", key="main_login_email")
+        # Create a unique key for the email input
+        email_input_key = "main_login_email"
+        email = st.text_input("Email", placeholder="Enter your email", key=email_input_key)
         password = st.text_input("Password", type="password", placeholder="Enter your password", key="main_login_password")
         
-        if st.button("Login", key="main_login_button", use_container_width=True):
-            if email and password:
-                result = st.session_state.db.sign_in(email, password)
-                if result["success"]:
-                    # Get username from user metadata
-                    username = result["user"].user_metadata.get("username", email)
-                    st.session_state.logged_in = True
-                    st.session_state.current_user = username
-                    st.session_state.user_role = "user"
-                    st.success(f"Welcome, {username}!")
-                    st.rerun()
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Login", key="main_login_button", use_container_width=True):
+                if email and password:
+                    result = st.session_state.db.sign_in(email, password)
+                    if result["success"]:
+                        if st.session_state.db.use_supabase:
+                            username = result["user"].user_metadata.get("username", email.split('@')[0])
+                        else:
+                            username = result["user"]["username"]
+                        st.session_state.logged_in = True
+                        st.session_state.current_user = username
+                        st.session_state.user_role = "user"
+                        st.success(f"Welcome, {username}!")
+                        st.rerun()
+                    else:
+                        error_msg = str(result['error']).lower()
+                        if 'invalid login credentials' in error_msg:
+                            st.error("❌ Invalid email or password. Please try again.")
+                        elif 'email not confirmed' in error_msg:
+                            st.error("📧 Please verify your email address before logging in. Check your inbox for the verification link.")
+                        else:
+                            st.error(f"Login failed: {result['error']}")
                 else:
-                    st.error(f"Login failed: {result['error']}")
-            else:
-                st.error("Please fill out all fields.")
+                    st.error("Please fill out all fields.")
+        
+        with col2:
+            # Forgot password button - get email from session state
+            if st.button("Forgot Password", key="forgot_password_btn", use_container_width=True):
+                # Get the current value from the email input using the key
+                current_email = st.session_state.get(email_input_key, "")
+                
+                if current_email:
+                    with st.spinner("Sending reset email..."):
+                        try:
+                            result = st.session_state.db.reset_password(current_email)
+                            if result["success"]:
+                                st.success("📧 Password reset email sent! Check your inbox for instructions.")
+                            else:
+                                error_msg = str(result['error']).lower()
+                                if 'email not found' in error_msg or 'user not found' in error_msg:
+                                    st.warning("If this email is registered, you'll receive a reset link.")
+                                else:
+                                    st.error(f"Error: {result['error']}")
+                        except Exception as e:
+                            error_msg = str(e).lower()
+                            if 'email not found' in error_msg or 'user not found' in error_msg:
+                                st.warning("If this email is registered, you'll receive a reset link.")
+                            else:
+                                st.error(f"Error: {e}")
+                else:
+                    st.warning("Please enter your email address above first.")
     
     with signup_tab:
         st.markdown("### Create an Account")
@@ -2512,8 +2551,34 @@ def render_login_signup_forms():
                     st.success("✅ Account created! Please check your email to verify your account before logging in.")
                     st.info("📧 Verification email sent - you may need to check your spam folder.")
                 else:
-                    st.error(f"Sign up failed: {result['error']}")
-
+                    error_msg = str(result['error']).lower()
+                    
+                    # User-friendly error messages
+                    if 'already registered' in error_msg or 'already exists' in error_msg or 'duplicate key' in error_msg:
+                        if 'email' in error_msg:
+                            st.error("📧 **This email address is already registered.**\n\nPlease log in using the Login tab, or click 'Forgot Password' if you need to reset your password.")
+                        elif 'username' in error_msg:
+                            st.error("👤 **This username is already taken.**\n\nPlease choose a different username.")
+                        else:
+                            st.error("📧 **This account already exists.**\n\nPlease log in using the Login tab.")
+                    
+                    elif 'rate limit' in error_msg or 'too many requests' in error_msg:
+                        if 'email' in error_msg:
+                            st.error("⏱️ **Too many signup attempts.**\n\nPlease wait a few minutes before trying again. This limit helps prevent spam.")
+                        else:
+                            st.error("⏱️ Too many signup attempts. Please wait a few minutes and try again.")
+                    
+                    elif 'invalid' in error_msg and 'email' in error_msg:
+                        st.error("📧 **Invalid email address.**\n\nPlease check your email format and try again.")
+                    
+                    elif 'password' in error_msg and 'weak' in error_msg:
+                        st.error("🔐 **Password is too weak.**\n\nPlease use a stronger password with a mix of letters, numbers, and symbols.")
+                    
+                    elif 'email rate limit' in error_msg or 'rate_limit' in error_msg:
+                        st.error("⏱️ **Email rate limit reached.**\n\nDue to security limits, we can only send a few verification emails per hour. Please try again later.")
+                    
+                    else:
+                        st.error(f"❌ **Sign up failed.**\n\n{result['error']}")
 def render_admin_sidebar():
     """Render admin-specific sidebar"""
     st.sidebar.header("Admin Dashboard")
