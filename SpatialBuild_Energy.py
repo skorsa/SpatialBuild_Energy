@@ -16,6 +16,50 @@ from db_wrapper import DatabaseWrapper
 
 load_dotenv()
 
+st.set_page_config(
+    page_title="SpatialBuild Energy",
+    page_icon="🏢",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Add CSS to prevent layout shift
+st.markdown("""
+<style>
+    /* Reserve space for sidebar */
+    .main > div {
+        padding-left: 0rem;
+        transition: padding-left 0.2s ease;
+    }
+    
+    /* Set fixed sidebar width */
+    section[data-testid="stSidebar"] {
+        width: 21rem !important;
+        min-width: 21rem !important;
+    }
+    
+    /* Ensure main content doesn't shift */
+    .main {
+        transition: margin-left 0.2s ease;
+    }
+    
+    /* Loading state */
+    .sidebar-loading {
+        width: 21rem;
+        height: 100vh;
+        background: linear-gradient(90deg, #f0f2f6 25%, #e6e9ef 50%, #f0f2f6 75%);
+        background-size: 200% 100%;
+        animation: loading 1.5s infinite;
+        padding: 2rem;
+    }
+    
+    @keyframes loading {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # Initialize database wrapper in session state
 if 'db' not in st.session_state:
     st.session_state.db = DatabaseWrapper()
@@ -3488,7 +3532,22 @@ def render_unified_search_interface(enable_editing=False):
         st.info("Use the filters above to explore the database")
 
 # MAIN APP LAYOUT
-# MAIN APP LAYOUT
+# Determine user type and render sidebar FIRST
+if st.session_state.logged_in:
+    if st.session_state.current_user == "admin":
+        render_admin_sidebar()
+    else:
+        render_user_sidebar()
+
+# THEN create and render main content tabs
+if st.session_state.logged_in:
+    if st.session_state.current_user == "admin":
+        tab_labels = ["SpatialBuild Energy", "Studies", "Contribute", "Edit/Review"]
+    else:
+        tab_labels = ["SpatialBuild Energy", "Studies", "Contribute", "Your Contributions"]
+else:
+    tab_labels = ["SpatialBuild Energy", "Studies", "Contribute"]
+
 if "current_tab" not in st.session_state:
     st.session_state.current_tab = "tab0"
 
