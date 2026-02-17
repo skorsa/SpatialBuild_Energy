@@ -275,7 +275,7 @@ class DatabaseWrapper:
             self.conn.commit()
             return cursor.lastrowid
     
-    # ============= AUTH METHODS (NEW) =============
+    # ============= AUTH METHODS =============
     
     def sign_up(self, email, password, username):
         """Sign up a new user with email verification"""
@@ -295,7 +295,6 @@ class DatabaseWrapper:
                 
                 # Also store in your users table for existing app compatibility
                 if auth_response.user:
-                    # No password field needed - it's managed by Supabase Auth
                     user_data = {
                         'username': username,
                         'email': email,
@@ -309,7 +308,16 @@ class DatabaseWrapper:
                             
                     return {"success": True, "user": auth_response.user}
             except Exception as e:
-                return {"success": False, "error": str(e)}
+                error_str = str(e)
+                # Return more specific error messages
+                if 'already registered' in error_str.lower():
+                    return {"success": False, "error": "Email already registered"}
+                elif 'duplicate key' in error_str.lower() and 'email' in error_str.lower():
+                    return {"success": False, "error": "Email already registered"}
+                elif 'rate limit' in error_str.lower():
+                    return {"success": False, "error": "Rate limit exceeded. Please try again later."}
+                else:
+                    return {"success": False, "error": error_str}
         else:
             # SQLite fallback (no email verification)
             cursor = self.conn.cursor()
@@ -324,48 +332,74 @@ class DatabaseWrapper:
             except Exception as e:
                 return {"success": False, "error": str(e)}
 
-    def sign_in(self, email, password):
-        """Sign in with email and password"""
+    def sign_in(self, login_id, password):
+        """Sign in with email OR username and password"""
         if self.use_supabase:
             try:
+                # Try as email first
                 auth_response = self.supabase.auth.sign_in_with_password({
-                    "email": email,
+                    "email": login_id,
                     "password": password
                 })
                 
                 # Get or create user record in your users table
                 user_id = auth_response.user.id
                 user_email = auth_response.user.email
-                username = auth_response.user.user_metadata.get('username', email.split('@')[0])
+                username = auth_response.user.user_metadata.get('username', login_id.split('@')[0])
                 
                 # Check if user exists in your table by auth_id or email
                 existing = self.supabase.table('users').select('*').eq('auth_id', user_id).execute()
                 
                 if not existing.data:
-                    # Create user record
-                    user_data = {
-                        'username': username,
-                        'email': user_email,
-                        'role': 'user',
-                        'email_confirmed': True,
-                        'auth_id': user_id
-                    }
-                    self.supabase.table('users').insert(user_data).execute()
+                    # Also try by username (for legacy users)
+                    existing_by_username = self.supabase.table('users').select('*').eq('username', login_id).execute()
+                    if existing_by_username.data:
+                        # Update legacy user with auth_id
+                        self.supabase.table('users').update({
+                            'auth_id': user_id,
+                            'email': user_email
+                        }).eq('username', login_id).execute()
+                    else:
+                        # Create new user record
+                        user_data = {
+                            'username': username,
+                            'email': user_email,
+                            'role': 'user',
+                            'email_confirmed': True,
+                            'auth_id': user_id
+                        }
+                        self.supabase.table('users').insert(user_data).execute()
                 
                 return {"success": True, "user": auth_response.user}
+                
             except Exception as e:
+                # If email login fails, it might be a username
+                error_str = str(e).lower()
+                if 'invalid login credentials' in error_str:
+                    # Try to find user by username in your table
+                    user_record = self.supabase.table('users').select('*').eq('username', login_id).execute()
+                    if user_record.data and user_record.data[0].get('email'):
+                        # Retry with the email
+                        try:
+                            auth_response = self.supabase.auth.sign_in_with_password({
+                                "email": user_record.data[0]['email'],
+                                "password": password
+                            })
+                            return {"success": True, "user": auth_response.user}
+                        except:
+                            pass
                 return {"success": False, "error": str(e)}
         else:
-            # SQLite fallback
+            # SQLite fallback - check both username and email
             cursor = self.conn.cursor()
-            cursor.execute("SELECT * FROM users WHERE email = ?", (email,))
+            cursor.execute("SELECT * FROM users WHERE username = ? OR email = ?", (login_id, login_id))
             user = cursor.fetchone()
             if user and bcrypt.checkpw(password.encode('utf-8'), user[2]):
                 return {
                     "success": True, 
                     "user": {
                         "id": user[0], 
-                        "email": user[4] if len(user) > 4 else email,
+                        "email": user[4] if len(user) > 4 else login_id,
                         "username": user[1],
                         "role": user[3]
                     }
@@ -376,6 +410,18 @@ class DatabaseWrapper:
         """Sign out current user"""
         if self.use_supabase:
             self.supabase.auth.sign_out()
+    
+    def reset_password(self, email):
+        """Send password reset email"""
+        if self.use_supabase:
+            try:
+                self.supabase.auth.reset_password_for_email(email)
+                return {"success": True}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+        else:
+            # SQLite fallback - can't really reset password
+            return {"success": False, "error": "Password reset not available in SQLite mode"}
     
     # ============= INSERT/UPDATE METHODS =============
     
