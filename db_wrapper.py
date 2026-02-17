@@ -6,6 +6,7 @@ import os
 import re
 from functools import lru_cache
 import time
+import bcrypt
 
 class DatabaseWrapper:
     def __init__(self):
@@ -34,7 +35,7 @@ class DatabaseWrapper:
         else:
             print("📂 Using local SQLite database")
             self.conn = sqlite3.connect('my_database.db', check_same_thread=False)
-            self.conn.row_factory = sqlite3.Row  # This lets us access columns by name
+            self.conn.row_factory = sqlite3.Row
     
     # ============= ENERGY DATA METHODS =============
     
@@ -273,8 +274,111 @@ class DatabaseWrapper:
             )
             self.conn.commit()
             return cursor.lastrowid
+    
+    # ============= AUTH METHODS (NEW) =============
+    
+    def sign_up(self, email, password, username):
+        """Sign up a new user with email verification"""
+        if self.use_supabase:
+            try:
+                # Sign up with Supabase Auth
+                auth_response = self.supabase.auth.sign_up({
+                    "email": email,
+                    "password": password,
+                    "options": {
+                        "data": {
+                            "username": username,
+                            "role": "user"
+                        }
+                    }
+                })
+                
+                # Also store in your users table for existing app compatibility
+                if auth_response.user:
+                    # No password field needed - it's managed by Supabase Auth
+                    user_data = {
+                        'username': username,
+                        'email': email,
+                        'role': 'user',
+                        'email_confirmed': False,
+                        'auth_id': auth_response.user.id
+                    }
+                    
+                    # Insert without password field
+                    self.supabase.table('users').insert(user_data).execute()
+                            
+                    return {"success": True, "user": auth_response.user}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+        else:
+            # SQLite fallback (no email verification)
+            cursor = self.conn.cursor()
+            try:
+                hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+                cursor.execute(
+                    "INSERT INTO users (username, password, role, email, email_confirmed) VALUES (?, ?, ?, ?, ?)",
+                    (username, hashed, 'user', email, 1)
+                )
+                self.conn.commit()
+                return {"success": True, "user": {"id": cursor.lastrowid, "username": username}}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
 
+    def sign_in(self, email, password):
+        """Sign in with email and password"""
+        if self.use_supabase:
+            try:
+                auth_response = self.supabase.auth.sign_in_with_password({
+                    "email": email,
+                    "password": password
+                })
+                
+                # Get or create user record in your users table
+                user_id = auth_response.user.id
+                user_email = auth_response.user.email
+                username = auth_response.user.user_metadata.get('username', email.split('@')[0])
+                
+                # Check if user exists in your table by auth_id or email
+                existing = self.supabase.table('users').select('*').eq('auth_id', user_id).execute()
+                
+                if not existing.data:
+                    # Create user record
+                    user_data = {
+                        'username': username,
+                        'email': user_email,
+                        'role': 'user',
+                        'email_confirmed': True,
+                        'auth_id': user_id
+                    }
+                    self.supabase.table('users').insert(user_data).execute()
+                
+                return {"success": True, "user": auth_response.user}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+        else:
+            # SQLite fallback
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT * FROM users WHERE email = ?", (email,))
+            user = cursor.fetchone()
+            if user and bcrypt.checkpw(password.encode('utf-8'), user[2]):
+                return {
+                    "success": True, 
+                    "user": {
+                        "id": user[0], 
+                        "email": user[4] if len(user) > 4 else email,
+                        "username": user[1],
+                        "role": user[3]
+                    }
+                }
+            return {"success": False, "error": "Invalid credentials"}
+    
+    def sign_out(self):
+        """Sign out current user"""
+        if self.use_supabase:
+            self.supabase.auth.sign_out()
+    
     # ============= INSERT/UPDATE METHODS =============
+    
     def get_next_id(self, table='energy_data'):
         """Get the next available ID by finding the max current ID and adding 1"""
         if self.use_supabase:
@@ -362,74 +466,6 @@ class DatabaseWrapper:
 
     def get_non_rejected_records(self, limit=5000):
         """Get all records that are not rejected (includes NULL, approved, pending)"""
-        if self.use_supabase:
-            # In Supabase, we need to use OR condition for status != 'rejected' OR status IS NULL
-            query = self.supabase.table('energy_data').select('*')
-            query = query.or_('status.neq.rejected,status.is.null')
-            if limit:
-                query = query.limit(limit)
-            result = query.execute()
-            return result.data
-        else:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                SELECT * FROM energy_data 
-                WHERE status != 'rejected' OR status IS NULL
-                LIMIT ?
-            """, (limit,))
-            return cursor.fetchall()
-
-    def update_record(self, table, record_id, data):
-        """Update an existing record"""
-        if self.use_supabase:
-            result = self.supabase.table(table).update(data).eq('id', record_id).execute()
-            return result.data
-        else:
-            cursor = self.conn.cursor()
-            set_clause = ', '.join([f"{k} = ?" for k in data.keys()])
-            values = list(data.values()) + [record_id]
-            
-            sql = f"UPDATE {table} SET {set_clause} WHERE id = ?"
-            cursor.execute(sql, values)
-            self.conn.commit()
-            return cursor.rowcount
-
-    def get_non_rejected_records(self, limit=5000):
-        """Get all records that are not rejected (includes NULL, approved, pending)"""
-        if self.use_supabase:
-            # In Supabase, we need to use OR condition for status != 'rejected' OR status IS NULL
-            query = self.supabase.table('energy_data').select('*')
-            query = query.or_('status.neq.rejected,status.is.null')
-            if limit:
-                query = query.limit(limit)
-            result = query.execute()
-            return result.data
-        else:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                SELECT * FROM energy_data 
-                WHERE status != 'rejected' OR status IS NULL
-                LIMIT ?
-            """, (limit,))
-            return cursor.fetchall()
-    
-    def update_record(self, table, record_id, data):
-        """Update an existing record"""
-        if self.use_supabase:
-            result = self.supabase.table(table).update(data).eq('id', record_id).execute()
-            return result.data
-        else:
-            cursor = self.conn.cursor()
-            set_clause = ', '.join([f"{k} = ?" for k in data.keys()])
-            values = list(data.values()) + [record_id]
-            
-            sql = f"UPDATE {table} SET {set_clause} WHERE id = ?"
-            cursor.execute(sql, values)
-            self.conn.commit()
-            return cursor.rowcount
-    
-    def get_non_rejected_records(self, limit=5000):
-        #"""Get all records that are not rejected (includes NULL, approved, pending)"""
         if self.use_supabase:
             # In Supabase, we need to use OR condition for status != 'rejected' OR status IS NULL
             query = self.supabase.table('energy_data').select('*')

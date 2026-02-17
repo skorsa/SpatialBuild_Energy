@@ -2467,40 +2467,52 @@ def render_contribute_tab():
         render_login_signup_forms()
 
 def render_login_signup_forms():
-    """Render login and signup forms with unique keys"""
+    """Render login and signup forms with email verification"""
     login_tab, signup_tab = st.tabs(["Login", "Sign Up"])
     
     with login_tab:
-        username = st.text_input("Username", placeholder="Enter your username", key="main_login_username")
+        email = st.text_input("Email", placeholder="Enter your email", key="main_login_email")
         password = st.text_input("Password", type="password", placeholder="Enter your password", key="main_login_password")
-        if st.button("Login", key="main_login_button"):
-            user = st.session_state.db.get_user(username)
-            
-            if user and bcrypt.checkpw(password.encode('utf-8'), user['password'].encode('utf-8')):
-                st.session_state.logged_in = True
-                st.session_state.current_user = username
-                st.session_state.user_role = user['role']
-                st.success(f"Welcome, {username}!")
-                st.rerun()
-            else:
-                st.error("Invalid username or password.")
-    
-    with signup_tab:
-        username = st.text_input("Username", placeholder="Enter your username", key="main_signup_username")
-        password = st.text_input("Password", type="password", placeholder="Enter your password", key="main_signup_password")
-        if st.button("Sign Up", key="main_signup_button"):
-            if username and password:
-                hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-                try:
-                    st.session_state.db.create_user(username, hashed_password, 'user')
-                    st.success("Account created successfully!")
-                except Exception as e:
-                    if "duplicate key" in str(e).lower():
-                        st.error("Username already exists.")
-                    else:
-                        st.error(f"Error creating account: {e}")
+        
+        if st.button("Login", key="main_login_button", use_container_width=True):
+            if email and password:
+                result = st.session_state.db.sign_in(email, password)
+                if result["success"]:
+                    # Get username from user metadata
+                    username = result["user"].user_metadata.get("username", email)
+                    st.session_state.logged_in = True
+                    st.session_state.current_user = username
+                    st.session_state.user_role = "user"
+                    st.success(f"Welcome, {username}!")
+                    st.rerun()
+                else:
+                    st.error(f"Login failed: {result['error']}")
             else:
                 st.error("Please fill out all fields.")
+    
+    with signup_tab:
+        st.markdown("### Create an Account")
+        st.info("📧 A verification email will be sent to your address.")
+        
+        username = st.text_input("Username", placeholder="Choose a username", key="main_signup_username")
+        email = st.text_input("Email", placeholder="Enter your email", key="main_signup_email")
+        password = st.text_input("Password", type="password", placeholder="Create a password", key="main_signup_password")
+        confirm_password = st.text_input("Confirm Password", type="password", placeholder="Confirm your password", key="main_signup_confirm")
+        
+        if st.button("Sign Up", key="main_signup_button", use_container_width=True):
+            if not username or not email or not password:
+                st.error("Please fill out all fields.")
+            elif password != confirm_password:
+                st.error("Passwords do not match.")
+            elif len(password) < 6:
+                st.error("Password must be at least 6 characters long.")
+            else:
+                result = st.session_state.db.sign_up(email, password, username)
+                if result["success"]:
+                    st.success("✅ Account created! Please check your email to verify your account before logging in.")
+                    st.info("📧 Verification email sent - you may need to check your spam folder.")
+                else:
+                    st.error(f"Sign up failed: {result['error']}")
 
 def render_admin_sidebar():
     """Render admin-specific sidebar"""
