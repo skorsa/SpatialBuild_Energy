@@ -1,7 +1,0 @@
-{
-  "schema": "CREATE TABLE users (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                username TEXT UNIQUE NOT NULL,\n                password TEXT NOT NULL,\n                role TEXT CHECK(role IN ('admin', 'user')) NOT NULL DEFAULT 'user',\n                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n            )",
-  "data": [
-    {
-      "id": 1,
-      "username": "admin",
-      "password": 
