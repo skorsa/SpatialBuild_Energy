@@ -2503,7 +2503,7 @@ def render_login_signup_forms():
                     st.error("Please fill out all fields.")
         
         with col2:
-            # Forgot password button - get email from session state
+            # Forgot password button - get email from session state to reset password
             if st.button("Forgot Password", key="forgot_password_btn", use_container_width=True):
                 # Get the current value from the email input using the key
                 current_email = st.session_state.get(email_input_key, "")
