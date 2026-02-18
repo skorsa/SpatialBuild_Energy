@@ -13,6 +13,9 @@ import time
 from contextlib import contextmanager
 from typing import List, Dict, Tuple
 from db_wrapper import DatabaseWrapper
+from location_map import render_location_map
+from determinant_analysis import render_frequency_analysis
+from climate_colors import get_climate_color
 
 load_dotenv()
 
@@ -2000,8 +2003,13 @@ def render_enhanced_papers_tab():
     
     is_admin = st.session_state.get("user_role") == "admin"
     
-    # Everyone gets both tabs now - admins and regular users
-    view_tab1, view_tab2 = st.tabs(["Search Studies", "Statistics"])
+    # Everyone gets four tabs now
+    view_tab1, view_tab2, view_tab3, view_tab4 = st.tabs([
+        "🔍 Search Studies", 
+        "📊 Statistics", 
+        "🗺️ Location Map",
+        "📈 Determinant Analysis"
+    ])
     
     with view_tab1:
         render_papers_tab()
@@ -2165,6 +2173,13 @@ def render_enhanced_papers_tab():
             
         else:
             st.info("No data available for statistics")
+
+        with view_tab3:
+            # Pass the database connection to the map function
+            render_location_map(st.session_state.db)    
+
+        with view_tab4:
+            render_frequency_analysis(st.session_state.db)
 
 def render_papers_tab():
     """Render the Studies tab with search functionality"""
@@ -2634,12 +2649,12 @@ def render_admin_sidebar():
     You can also remove and re-import location, climate and scale data from your excel file."""
     st.sidebar.write(welcome_admin_dashboard, unsafe_allow_html=True)
     
-        # Add persistent user info
+    # Add persistent user info
     st.sidebar.divider()
     st.sidebar.info(f" **Logged in as:** {st.session_state.current_user} (Admin)")
 
-
-    if st.sidebar.button("logout"):
+    # ✅ Add unique key
+    if st.sidebar.button("logout", key="admin_logout_btn"):
         logout()
         st.rerun()
 
@@ -2650,11 +2665,12 @@ def render_user_sidebar():
     welcome_user_dashboard = f"As a logged in user you can add your findings to the dataset under the contribute tab.<br>1. Select the relevant determinant.<br>2. Select energy output.<br>3. Select the relationship direction.<br>4. Add your entry and click Save.<br>Your entry will be submitted pending verification.<br>If your study references new or unlisted determinant/energy output types you can add them by choosing Add new determinant/Add new energy output."
     st.sidebar.write(welcome_user_dashboard, unsafe_allow_html=True)
     
-        # Add persistent user info
+    # Add persistent user info
     st.sidebar.divider()    
     st.sidebar.info(f" **Logged in as:** {st.session_state.current_user}")
 
-    if st.sidebar.button("logout"):
+    # ✅ Add unique key
+    if st.sidebar.button("logout", key="user_logout_btn"):
         logout()
         st.rerun()
 
@@ -3628,7 +3644,7 @@ if st.session_state.logged_in:
             admin_dashboard()
             st.session_state.current_tab = "tab3"
         
-        render_admin_sidebar()
+        
         
     else:
         tab0, tab1, tab2, tab3 = tabs
@@ -3649,7 +3665,7 @@ if st.session_state.logged_in:
             user_dashboard()
             st.session_state.current_tab = "tab3"
         
-        render_user_sidebar()
+            
 
 else:
     tab0, tab1, tab2 = tabs
