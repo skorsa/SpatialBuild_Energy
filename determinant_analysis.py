@@ -182,31 +182,33 @@ def render_frequency_analysis(db_connection):
                                 return color
                         return '#9B9B9B'  # Default gray
                 
+                # Replace the CSS with this corrected version:
+
                 st.markdown("""
                 <style>
                     .viz-card {
-                        background-color: #f8f9fa;
-                        border-radius: 8px;
-                        padding: 20px;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                        display: flex;
-                        flex-direction: column;
-                        align-items: center;
-                        margin-bottom: 20px;
+                        background-color: transparent;
+                        padding: 0 30px;  /* Add left and right padding here */
+                        box-shadow: none;
+                        display: block;  /* Changed from flex to block */
+                        margin: 10px auto;
+                        width: 100%;  /* Take full width of parent */
+                        box-sizing: border-box;  /* Include padding in width */
                     }
                     .stack-container {
-                        display: flex;
+                        display: block;
                         flex-direction: column;
                         align-items: center;
-                        width: 100%;
-                        max-width: 300px;
-                        margin: 0 auto;
+                        width: 50%;
+                        max-width: 260px;  /* Control the actual chart width */
+                        margin: 0px auto;  /* Center the stack container */
+                        padding: 0px;
                     }
                     .frequency-box {
                         width: 100%;
                         height: 28px;
                         margin: 0;
-                        padding: 0;
+                        padding: 0 5px;
                         border: none;
                         display: flex;
                         align-items: center;
@@ -214,12 +216,13 @@ def render_frequency_analysis(db_connection):
                         color: black;
                         font-size: 12px;
                         font-weight: bold;
+                        box-sizing: border-box;
                     }
                     .display-box {
                         width: 100%;
                         height: 36px;
                         margin: 0;
-                        padding: 0;
+                        padding: 0 5px;
                         display: flex;
                         align-items: center;
                         justify-content: center;
@@ -228,6 +231,7 @@ def render_frequency_analysis(db_connection):
                         background-color: white;
                         border-left: 1px solid #dee2e6;
                         border-right: 1px solid #dee2e6;
+                        box-sizing: border-box;
                     }
                     .display-box.top {
                         border-top: 1px solid #dee2e6;
@@ -244,6 +248,13 @@ def render_frequency_analysis(db_connection):
                     .display-box.bottom {
                         border-top: none;
                         border-bottom: 1px solid #dee2e6;
+                    }
+                    /* Remove any extra margins from Streamlit elements */
+                    div[data-testid="stVerticalBlock"] > div {
+                        padding: 0 !important;
+                    }
+                    .stMarkdown {
+                        margin: 0 !important;
                     }
                 </style>
                 """, unsafe_allow_html=True)
