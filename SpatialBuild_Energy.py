@@ -2011,6 +2011,7 @@ def render_enhanced_papers_tab():
         "📈 Moderator Analysis"
     ])
     
+    
     with view_tab1:
         render_papers_tab()
     
