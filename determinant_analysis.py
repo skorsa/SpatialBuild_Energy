@@ -74,7 +74,7 @@ def render_frequency_analysis(db_connection):
     determinant_options = ["-- Choose a determinant --"] + [f"{d} [{c}]" for d, c in determinants_with_counts]
     
     # Create three columns: left for controls (30%), middle for chart (40%), right blank (30%)
-    left_col, mid_col, right_col = st.columns([.5, 0.5, 1])
+    left_col, mid_col, right_col = st.columns([1, 1, 1])
     
     with left_col:
          # Analysis type selector
@@ -309,8 +309,8 @@ def render_frequency_analysis(db_connection):
                     align-items: center;
                     justify-content: center;
                     color: black;
-                    font-size: 10px;
-                    font-weight: bold;
+                    font-size: 12px;
+                    font-weight: plain;
                     box-sizing: border-box;
                     white-space: nowrap;
                     overflow: hidden;
@@ -339,71 +339,22 @@ def render_frequency_analysis(db_connection):
                 .stMarkdown {
                     margin: 0 !important;
                 }
+                .vertical-text-left {
+                    writing-mode: vertical-rl;
+                    text-orientation: mixed;
+                    transform: rotate(180deg);
+                    white-space: nowrap;
+                }
             </style>
             """, unsafe_allow_html=True)
-            
-           # Replace the visualization section in mid_col with this:
-
-            # Only render visualization if determinant is selected
-            # Replace the chart section in mid_col with this:
 
             # Only render visualization if determinant is selected
             if selected_determinant:
                 # Create a container for the chart with two columns
-                chart_col1, chart_col2 = st.columns([0.25, 1])
-                
+                chart_col1, chart_col2 = st.columns([6, 0.5])
+        
                 with chart_col1:
-                    # Arrow column on the left
-                    st.markdown('<div style="display: flex; flex-direction: column; height: 100%; position: relative;">', unsafe_allow_html=True)
-                    
-                    # Calculate total stack heights
-                    top_stack_height = top_height * 28 if top_height > 0 else 28
-                    bottom_stack_height = bottom_height * 28 if bottom_height > 0 else 28
-                    determinant_height = 36
-                    
-                    # Top arrow section (pointing up from determinant)
-                    if top_height > 0 and selected_top:
-                        st.markdown(f'''
-                        <div style="position: relative; height: {top_stack_height}px; margin-bottom: 0;">
-                            <!-- Vertical line -->
-                            <div style="position: absolute; left: 20px; top: {top_stack_height}px; width: 2px; height: {top_stack_height}px; background-color: #e74c3c; transform: translateY(-100%);"></div>
-                            <!-- Arrow head -->
-                            <div style="position: absolute; left: 14px; top: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 12px solid #e74c3c;"></div>
-                            <!-- Rotated label -->
-                            <div style="position: absolute; left: 30px; top: {top_stack_height/2}px; transform: translateY(-50%) rotate(0deg); font-size: 11px; font-weight: bold; color: #e74c3c; white-space: nowrap; writing-mode: vertical-rl; text-orientation: mixed;">
-                                {selected_top.split(" [")[0]}
-                            </div>
-                        </div>
-                        ''', unsafe_allow_html=True)
-                    else:
-                        # Placeholder when no selection
-                        st.markdown(f'<div style="height: 28px;"></div>', unsafe_allow_html=True)
-                    
-                    # Determinant spacer (visual connector)
-                    st.markdown(f'<div style="height: {determinant_height}px;"></div>', unsafe_allow_html=True)
-                    
-                    # Bottom arrow section (pointing down from determinant)
-                    if bottom_height > 0 and selected_bottom:
-                        st.markdown(f'''
-                        <div style="position: relative; height: {bottom_stack_height}px; margin-top: 0;">
-                            <!-- Vertical line -->
-                            <div style="position: absolute; left: 20px; top: 0; width: 2px; height: {bottom_stack_height}px; background-color: #3498db;"></div>
-                            <!-- Arrow head -->
-                            <div style="position: absolute; left: 14px; bottom: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-top: 12px solid #3498db;"></div>
-                            <!-- Rotated label -->
-                            <div style="position: absolute; left: 30px; top: {bottom_stack_height/2}px; transform: translateY(-50%) rotate(0deg); font-size: 11px; font-weight: bold; color: #3498db; white-space: nowrap; writing-mode: vertical-rl; text-orientation: mixed;">
-                                {selected_bottom.split(" [")[0]}
-                            </div>
-                        </div>
-                        ''', unsafe_allow_html=True)
-                    else:
-                        # Placeholder when no selection
-                        st.markdown(f'<div style="height: 28px;"></div>', unsafe_allow_html=True)
-                    
-                    st.markdown('</div>', unsafe_allow_html=True)  # Close arrow column
-                
-                with chart_col2:
-                    # Bars column on the right
+                    # Bars column on the left
                     st.markdown('<div class="bars-column">', unsafe_allow_html=True)
                     
                     # TOP SECTION - Increase results
@@ -439,6 +390,73 @@ def render_frequency_analysis(db_connection):
                 st.markdown('</div>', unsafe_allow_html=True)  # Close stack-container
                 st.markdown('</div>', unsafe_allow_html=True)  # Close viz-card
             
+            with chart_col2:
+                    # Arrow column on the right
+                    st.markdown('<div style="display: flex; flex-direction: column; height: 100%; position: relative;">', unsafe_allow_html=True)
+                    
+                    # Calculate total stack heights
+                    top_stack_height = top_height * 28 if top_height > 0 else 28
+                    bottom_stack_height = bottom_height * 28 if bottom_height > 0 else 28
+                    determinant_height = 36
+                    
+                    # Top arrow section (pointing up from determinant)
+                    if top_height > 0 and selected_top:
+                        # Calculate approximate text height
+                        energy_name = selected_top.split(" [")[0]
+                        increase_count = sum(1 for r in top_items)  # Count of records
+                        text_length = len(energy_name) + len(f"(Increase) {increase_count}")
+                        text_height = text_length * 11
+
+                        st.markdown(f'''
+                        <div style="position: relative; height: {top_stack_height}px; margin-bottom: 0; width: 60px;">
+                            <!-- Vertical line (centered at 30px) -->
+                            <div style="position: absolute; left: 10px; top: {top_stack_height}px; width: 3px; height: {top_stack_height}px; background-color: #e74c3c; transform: translateY(-100%);"></div>
+                            <!-- Arrow head (centered on line) -->
+                            <div style="position: absolute; left: 4px; top: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid #e74c3c;"></div>
+                            <!-- Rotated label - starts at determinant end (BOTTOM of arrow) and goes up -->
+                            <div style="position: absolute; left: 20px; bottom: 0; height: {max(top_stack_height, text_height)}px; display: flex; flex-direction: column; justify-content: flex-start; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); color: #e74c3c; white-space: nowrap;">
+                            <div style="margin: 0;">
+                                {energy_name}
+                            </div>
+                            <div style="margin-bottom: auto; opacity: 0.9;">Increase [{increase_count}]</div>
+                        </div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                    else:
+                        # Placeholder when no selection
+                        st.markdown(f'<div style="height: 28px;"></div>', unsafe_allow_html=True)
+
+                    # Determinant spacer (visual connector)
+                    st.markdown(f'<div style="height: {determinant_height}px; width: 60px;"></div>', unsafe_allow_html=True)
+
+                    # Bottom arrow section (pointing down from determinant)
+                    if bottom_height > 0 and selected_bottom:
+                        # Calculate approximate text height (11px font * number of characters)
+                        energy_name = selected_bottom.split(" [")[0]
+                        decrease_count = sum(1 for r in bottom_items)  # Count of records
+                        text_length = len(energy_name) + len(f"(Decrease) {decrease_count}")
+                        text_height = text_length * 11
+                                            
+                        st.markdown(f'''
+                        <div style="position: relative; height: {bottom_stack_height}px; margin-top: 0; width: 60px;">
+                            <!-- Vertical line (centered at 30px) -->
+                            <div style="position: absolute; left: 10px; top: 0; width: 3px; height: {bottom_stack_height}px; background-color: #3498db;"></div>
+                            <!-- Arrow head (centered on line) -->
+                            <div style="position: absolute; left: 4px; bottom: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-top: 14px solid #3498db;"></div>
+                            <!-- Rotated label - ENDS at determinant (top of arrow) and extends downward -->
+                            <div style="position: absolute; left: 20px; top: 0; height: {max(bottom_stack_height, text_height)}px; display: flex; flex-direction: column; justify-content: flex-start; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); color: #3498db; white-space: nowrap;">
+                                <div style="margin-top: auto;">
+                                    {energy_name}
+                                </div>
+                                <div style="margin-top: auto; opacity: 0.9;">Decrease [{decrease_count}]</div>
+                            </div>
+                        </div>
+                        ''', unsafe_allow_html=True)
+                    else:
+                        # Placeholder when no selection
+                        st.markdown(f'<div style="height: 28px;"></div>', unsafe_allow_html=True)
+
+
             # Add button to save this visual (moved to left column)
             with left_col:
                 if selected_determinant and selected_top and selected_bottom:
