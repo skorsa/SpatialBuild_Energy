@@ -9,7 +9,7 @@ notes.txt
 generate_location_cache.py
 geocoding.py
 location_cache_partial.json
-location_lookup.py
+
 
 # Database files
 *.db
