@@ -2008,7 +2008,7 @@ def render_enhanced_papers_tab():
         "🔍 Search Studies", 
         "📊 Statistics", 
         "🗺️ Location Map",
-        "📈 Determinant Analysis"
+        "📈 Moderator Analysis"
     ])
     
     with view_tab1:
