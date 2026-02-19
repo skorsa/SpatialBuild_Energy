@@ -345,48 +345,60 @@ def render_frequency_analysis(db_connection):
            # Replace the visualization section in mid_col with this:
 
             # Only render visualization if determinant is selected
+            # Replace the chart section in mid_col with this:
+
+            # Only render visualization if determinant is selected
             if selected_determinant:
                 # Create a container for the chart with two columns
-                chart_col1, chart_col2 = st.columns([0.3, 1])
+                chart_col1, chart_col2 = st.columns([0.25, 1])
                 
                 with chart_col1:
                     # Arrow column on the left
-                    st.markdown('<div style="display: flex; flex-direction: column; height: 100%;">', unsafe_allow_html=True)
+                    st.markdown('<div style="display: flex; flex-direction: column; height: 100%; position: relative;">', unsafe_allow_html=True)
                     
-                    # Top arrow section
+                    # Calculate total stack heights
+                    top_stack_height = top_height * 28 if top_height > 0 else 28
+                    bottom_stack_height = bottom_height * 28 if bottom_height > 0 else 28
+                    determinant_height = 36
+                    
+                    # Top arrow section (pointing up from determinant)
                     if top_height > 0 and selected_top:
                         st.markdown(f'''
-                        <div style="display: flex; flex-direction: column; justify-content: flex-end; height: {top_height * 28}px;">
-                            <div style="color: #e74c3c; font-size: 24px; text-align: center;">↑</div>
-                            <div style="font-size: 10px; font-weight: bold; color: #2c3e50; text-align: center;">{selected_top.split(" [")[0]}</div>
+                        <div style="position: relative; height: {top_stack_height}px; margin-bottom: 0;">
+                            <!-- Vertical line -->
+                            <div style="position: absolute; left: 20px; top: {top_stack_height}px; width: 2px; height: {top_stack_height}px; background-color: #e74c3c; transform: translateY(-100%);"></div>
+                            <!-- Arrow head -->
+                            <div style="position: absolute; left: 14px; top: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 12px solid #e74c3c;"></div>
+                            <!-- Rotated label -->
+                            <div style="position: absolute; left: 30px; top: {top_stack_height/2}px; transform: translateY(-50%) rotate(0deg); font-size: 11px; font-weight: bold; color: #e74c3c; white-space: nowrap; writing-mode: vertical-rl; text-orientation: mixed;">
+                                {selected_top.split(" [")[0]}
+                            </div>
                         </div>
                         ''', unsafe_allow_html=True)
                     else:
-                        st.markdown(f'''
-                        <div style="display: flex; flex-direction: column; justify-content: flex-end; height: 28px;">
-                            <div style="color: #e74c3c; font-size: 24px; text-align: center;">↑</div>
-                            <div style="font-size: 10px; font-weight: bold; color: #2c3e50; text-align: center;">Increase</div>
-                        </div>
-                        ''', unsafe_allow_html=True)
+                        # Placeholder when no selection
+                        st.markdown(f'<div style="height: 28px;"></div>', unsafe_allow_html=True)
                     
-                    # Determinant spacer
-                    st.markdown(f'<div style="height: 36px;"></div>', unsafe_allow_html=True)
+                    # Determinant spacer (visual connector)
+                    st.markdown(f'<div style="height: {determinant_height}px;"></div>', unsafe_allow_html=True)
                     
-                    # Bottom arrow section
+                    # Bottom arrow section (pointing down from determinant)
                     if bottom_height > 0 and selected_bottom:
                         st.markdown(f'''
-                        <div style="display: flex; flex-direction: column; justify-content: flex-start; height: {bottom_height * 28}px;">
-                            <div style="color: #3498db; font-size: 24px; text-align: center;">↓</div>
-                            <div style="font-size: 10px; font-weight: bold; color: #2c3e50; text-align: center;">{selected_bottom.split(" [")[0]}</div>
+                        <div style="position: relative; height: {bottom_stack_height}px; margin-top: 0;">
+                            <!-- Vertical line -->
+                            <div style="position: absolute; left: 20px; top: 0; width: 2px; height: {bottom_stack_height}px; background-color: #3498db;"></div>
+                            <!-- Arrow head -->
+                            <div style="position: absolute; left: 14px; bottom: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-top: 12px solid #3498db;"></div>
+                            <!-- Rotated label -->
+                            <div style="position: absolute; left: 30px; top: {bottom_stack_height/2}px; transform: translateY(-50%) rotate(0deg); font-size: 11px; font-weight: bold; color: #3498db; white-space: nowrap; writing-mode: vertical-rl; text-orientation: mixed;">
+                                {selected_bottom.split(" [")[0]}
+                            </div>
                         </div>
                         ''', unsafe_allow_html=True)
                     else:
-                        st.markdown(f'''
-                        <div style="display: flex; flex-direction: column; justify-content: flex-start; height: 28px;">
-                            <div style="color: #3498db; font-size: 24px; text-align: center;">↓</div>
-                            <div style="font-size: 10px; font-weight: bold; color: #2c3e50; text-align: center;">Decrease</div>
-                        </div>
-                        ''', unsafe_allow_html=True)
+                        # Placeholder when no selection
+                        st.markdown(f'<div style="height: 28px;"></div>', unsafe_allow_html=True)
                     
                     st.markdown('</div>', unsafe_allow_html=True)  # Close arrow column
                 
