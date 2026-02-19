@@ -348,7 +348,7 @@ def render_frequency_analysis(db_connection):
             </style>
             """, unsafe_allow_html=True)
 
-            # Only render visualization if determinant is selected
+                        # Only render visualization if determinant is selected
             if selected_determinant:
                 # Create a container for the chart with two columns
                 chart_col1, chart_col2 = st.columns([6, 0.5])
@@ -387,10 +387,8 @@ def render_frequency_analysis(db_connection):
                         st.markdown('<div class="frequency-box" style="opacity:0;"></div>', unsafe_allow_html=True)
                     
                     st.markdown('</div>', unsafe_allow_html=True)  # Close bars-column
-                st.markdown('</div>', unsafe_allow_html=True)  # Close stack-container
-                st.markdown('</div>', unsafe_allow_html=True)  # Close viz-card
-            
-            with chart_col2:
+                
+                with chart_col2:
                     # Arrow column on the right
                     st.markdown('<div style="display: flex; flex-direction: column; height: 100%; position: relative;">', unsafe_allow_html=True)
                     
@@ -415,13 +413,13 @@ def render_frequency_analysis(db_connection):
                             <div style="position: absolute; left: 4px; top: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid #e74c3c;"></div>
                             <!-- Rotated label - starts at determinant end (BOTTOM of arrow) and goes up -->
                             <div style="position: absolute; left: 20px; bottom: 0; height: {max(top_stack_height, text_height)}px; display: flex; flex-direction: column; justify-content: flex-start; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); color: #e74c3c; white-space: nowrap;">
-                            <div style="margin: 0;">
-                                {energy_name}
+                                <div style="margin: 0;">
+                                    {energy_name}
+                                </div>
+                                <div style="margin-bottom: auto; opacity: 0.9;">Increase [{increase_count}]</div>
                             </div>
-                            <div style="margin-bottom: auto; opacity: 0.9;">Increase [{increase_count}]</div>
                         </div>
-                    </div>
-                    ''', unsafe_allow_html=True)
+                        ''', unsafe_allow_html=True)
                     else:
                         # Placeholder when no selection
                         st.markdown(f'<div style="height: 28px;"></div>', unsafe_allow_html=True)
@@ -431,7 +429,7 @@ def render_frequency_analysis(db_connection):
 
                     # Bottom arrow section (pointing down from determinant)
                     if bottom_height > 0 and selected_bottom:
-                        # Calculate approximate text height (11px font * number of characters)
+                        # Calculate approximate text height
                         energy_name = selected_bottom.split(" [")[0]
                         decrease_count = sum(1 for r in bottom_items)  # Count of records
                         text_length = len(energy_name) + len(f"(Decrease) {decrease_count}")
@@ -455,6 +453,30 @@ def render_frequency_analysis(db_connection):
                     else:
                         # Placeholder when no selection
                         st.markdown(f'<div style="height: 28px;"></div>', unsafe_allow_html=True)
+
+                    # Close the arrow column div
+                    st.markdown('</div>', unsafe_allow_html=True)  # Close the arrow column
+
+                # Close the chart columns container (this is inside the if block)
+                st.markdown('</div>', unsafe_allow_html=True)  # Close the row container for chart columns
+
+                # After your chart code, add this simple legend
+                if selected_determinant and selected_top and selected_bottom:
+                    top_name = selected_top.split(" [")[0]
+                    bottom_name = selected_bottom.split(" [")[0]
+                    
+                    st.markdown(f"""
+                    Climate frequency in studies of **{selected_determinant}** showing 
+                    **{top_name}** Increase [{top_height}] and **{bottom_name}** Decrease [{bottom_height}]
+                    """)
+
+                elif selected_determinant and selected_top:
+                    top_name = selected_top.split(" [")[0]
+                    st.markdown(f"Climate frequency in studies of **{selected_determinant}** showing **{top_name}** (↑ {top_height} studies)")
+
+                elif selected_determinant and selected_bottom:
+                    bottom_name = selected_bottom.split(" [")[0]
+                    st.markdown(f"Climate frequency in studies of **{selected_determinant}** showing **{bottom_name}** (↓ {bottom_height} studies)")
 
 
             # Add button to save this visual (moved to left column)
