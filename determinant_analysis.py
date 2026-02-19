@@ -249,6 +249,7 @@ def render_frequency_analysis(db_connection):
                     bottom_sorted = sorted(bottom_counts.items(), key=lambda x: x[1], reverse=True)
                     bottom_height = sum(bottom_counts.values())
             
+            
             # CSS styles
             st.markdown("""
             <style>
