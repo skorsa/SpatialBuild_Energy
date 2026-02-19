@@ -46,18 +46,10 @@ def analyze_determinant_pair(db_connection, determinant, top_keywords, bottom_ke
     
     return top_records, bottom_records
 
+
 def render_frequency_analysis(db_connection):
-    st.subheader("📊 Frequency Analysis")
+    st.subheader("📊 Moderator Analysis")
     
-    # Analysis type selector
-    analysis_type = st.selectbox(
-        "Select analysis type",
-        options=[
-            "🌍 Climate Frequency Analysis",
-            "📏 Scale Frequency Analysis"
-        ],
-        key="analysis_type_selector"
-    )
     
     # Initialize session state for storing multiple visuals
     if 'saved_visuals' not in st.session_state:
@@ -81,10 +73,19 @@ def render_frequency_analysis(db_connection):
     )
     determinant_options = ["-- Choose a determinant --"] + [f"{d} [{c}]" for d, c in determinants_with_counts]
     
-    # Create two columns: left for controls (30%), right for visualization (70%)
-    left_col, right_col = st.columns([1, 2])
+    # Create three columns: left for controls (30%), middle for chart (40%), right blank (30%)
+    left_col, mid_col, right_col = st.columns([.5, 0.5, 1])
     
     with left_col:
+         # Analysis type selector
+        analysis_type = st.selectbox(
+            "Select moderator",
+            options=[
+                "🌍 Climate",
+                "📏 Scale"
+            ],
+            key="analysis_type_selector"
+        )
         # Create placeholders for dynamic dropdowns
         top_dropdown = st.empty()
         det_dropdown = st.empty()
@@ -97,6 +98,7 @@ def render_frequency_analysis(db_connection):
             key="det_selector"
         )
         
+
         # Initially, show disabled/inactive dropdowns for energy outputs
         top_dropdown.selectbox(
             "↑ Energy output (increase)",
@@ -112,183 +114,287 @@ def render_frequency_analysis(db_connection):
             disabled=True
         )
     
-    with right_col:
-        # Visualization area
-        if selected_det_with_count and selected_det_with_count != "-- Choose a determinant --":
-            selected_determinant = selected_det_with_count.split(" [")[0]
-            
-            # Get energy outputs for this determinant
-            det_records = [r for r in all_records if r.get('criteria') == selected_determinant]
-            
-            # Get energy outputs for increase direction
-            increase_methods = {}
-            for record in det_records:
-                if record.get('direction') == 'Increase':
-                    method = record.get('energy_method')
-                    if method:
-                        increase_methods[method] = increase_methods.get(method, 0) + 1
-            
-            # Get energy outputs for decrease direction
-            decrease_methods = {}
-            for record in det_records:
-                if record.get('direction') == 'Decrease':
-                    method = record.get('energy_method')
-                    if method:
-                        decrease_methods[method] = decrease_methods.get(method, 0) + 1
-            
-            # Update the dropdowns in left column
-            with left_col:
-                # Update top dropdown (now active)
-                if increase_methods:
-                    increase_options = ["-- Choose energy output --"] + [f"{m} [{c}]" for m, c in sorted(increase_methods.items(), key=lambda x: x[1], reverse=True)]
-                    selected_top = top_dropdown.selectbox(
-                        "↑ Energy output (increase)",
-                        options=increase_options,
-                        key="top_energy_active"
-                    )
-                
-                # Update bottom dropdown (now active)
-                if decrease_methods:
-                    decrease_options = ["-- Choose energy output --"] + [f"{m} [{c}]" for m, c in sorted(decrease_methods.items(), key=lambda x: x[1], reverse=True)]
-                    selected_bottom = bottom_dropdown.selectbox(
-                        "↓ Energy output (decrease)",
-                        options=decrease_options,
-                        key="bottom_energy_active"
-                    )
-            
-            # Build the visualization
-            with right_col:
-                # Define color function based on analysis type
-                def get_item_color(item):
-                    if "Climate" in analysis_type:
-                        return get_climate_color(item)
-                    else:  # Scale frequency
-                        # Simple color mapping for scales
-                        scale_colors = {
-                            'National': '#FF6B6B',
-                            'Regional': '#4ECDC4',
-                            'City': '#45B7D1',
-                            'Urban': '#96CEB4',
-                            'Neighborhood': '#FFE194',
-                            'Building': '#E78F8F',
-                            'Global': '#B83B5E',
-                            'Continental': '#6C5B7B',
-                            'Local': '#F08A5D',
-                            'Municipal': '#4D96FF',
-                        }
-                        # Return color based on scale name or default gray
-                        for key, color in scale_colors.items():
-                            if key.lower() in str(item).lower():
-                                return color
-                        return '#9B9B9B'  # Default gray
-                
-                # Replace the CSS with this corrected version:
+        # In your render_frequency_analysis function, replace the section starting from "with mid_col:" with this:
 
-                st.markdown("""
-                <style>
-                    .viz-card {
-                        background-color: transparent;
-                        padding: 0 30px;  /* Add left and right padding here */
-                        box-shadow: none;
-                        display: block;  /* Changed from flex to block */
-                        margin: 10px auto;
-                        width: 100%;  /* Take full width of parent */
-                        box-sizing: border-box;  /* Include padding in width */
-                    }
-                    .stack-container {
-                        display: block;
-                        flex-direction: column;
-                        align-items: center;
-                        width: 50%;
-                        max-width: 260px;  /* Control the actual chart width */
-                        margin: 0px auto;  /* Center the stack container */
-                        padding: 0px;
-                    }
-                    .frequency-box {
-                        width: 100%;
-                        height: 28px;
-                        margin: 0;
-                        padding: 0 5px;
-                        border: none;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        color: black;
-                        font-size: 12px;
-                        font-weight: bold;
-                        box-sizing: border-box;
-                    }
-                    .display-box {
-                        width: 100%;
-                        height: 36px;
-                        margin: 0;
-                        padding: 0 5px;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        font-weight: bold;
-                        font-size: 14px;
-                        background-color: white;
-                        border-left: 1px solid #dee2e6;
-                        border-right: 1px solid #dee2e6;
-                        box-sizing: border-box;
-                    }
-                    .display-box.top {
-                        border-top: 1px solid #dee2e6;
-                        border-bottom: none;
-                    }
-                    .display-box.middle {
-                        background-color: #f0f2f6;
-                        border-top: 2px solid #000000;
-                        border-bottom: 2px solid #000000;
-                        border-left: 2px solid #000000;
-                        border-right: 2px solid #000000;
-                        font-weight: bold;
-                    }
-                    .display-box.bottom {
-                        border-top: none;
-                        border-bottom: 1px solid #dee2e6;
-                    }
-                    /* Remove any extra margins from Streamlit elements */
-                    div[data-testid="stVerticalBlock"] > div {
-                        padding: 0 !important;
-                    }
-                    .stMarkdown {
-                        margin: 0 !important;
-                    }
-                </style>
-                """, unsafe_allow_html=True)
+        with mid_col:
+            # Initialize variables
+            selected_determinant = None
+            det_records = []
+            increase_methods = {}
+            decrease_methods = {}
+            selected_top = None
+            selected_bottom = None
+            top_items = []
+            bottom_items = []
+            top_sorted = []
+            bottom_sorted = []
+            top_height = 0
+            bottom_height = 0
+            
+            # Check if determinant is selected
+            if selected_det_with_count and selected_det_with_count != "-- Choose a determinant --":
+                selected_determinant = selected_det_with_count.split(" [")[0]
                 
-                st.markdown('<div class="viz-card">', unsafe_allow_html=True)
-                st.markdown('<div class="stack-container">', unsafe_allow_html=True)
+                # Get energy outputs for this determinant
+                det_records = [r for r in all_records if r.get('criteria') == selected_determinant]
                 
-                # TOP SECTION - Increase results
-                if 'selected_top' in locals() and selected_top and selected_top != "-- Choose energy output --":
-                    selected_top_energy = selected_top.split(" [")[0]
+                # Get energy outputs for increase direction
+                increase_methods = {}
+                for record in det_records:
+                    if record.get('direction') == 'Increase':
+                        method = record.get('energy_method')
+                        if method:
+                            increase_methods[method] = increase_methods.get(method, 0) + 1
+                
+                # Get energy outputs for decrease direction
+                decrease_methods = {}
+                for record in det_records:
+                    if record.get('direction') == 'Decrease':
+                        method = record.get('energy_method')
+                        if method:
+                            decrease_methods[method] = decrease_methods.get(method, 0) + 1
+                
+                # Update the dropdowns in left column
+                with left_col:
+                    # Update top dropdown (now active)
+                    if increase_methods:
+                        increase_options = ["-- Choose energy output --"] + [f"{m} [{c}]" for m, c in sorted(increase_methods.items(), key=lambda x: x[1], reverse=True)]
+                        selected_top = top_dropdown.selectbox(
+                            "↑ Energy output (increase)",
+                            options=increase_options,
+                            key="top_energy_active"
+                        )
                     
-                    # Filter records for top stack
-                    top_items = []
-                    for record in det_records:
-                        if record.get('direction') == 'Increase':
-                            method = record.get('energy_method', '').lower()
-                            if selected_top_energy.lower() in method:
-                                if "Climate" in analysis_type:
-                                    item = record.get('climate')
-                                else:  # Scale frequency
-                                    item = record.get('scale')
-                                
-                                if item and item not in ['', None, 'Awaiting data']:
-                                    # Clean item code
-                                    item_clean = item
-                                    if " - " in str(item):
-                                        item_clean = item.split(" - ")[0]
-                                    item_clean = ''.join([c for c in str(item_clean) if c.isalnum()])
-                                    top_items.append(item_clean)
+                    # Update bottom dropdown (now active)
+                    if decrease_methods:
+                        decrease_options = ["-- Choose energy output --"] + [f"{m} [{c}]" for m, c in sorted(decrease_methods.items(), key=lambda x: x[1], reverse=True)]
+                        selected_bottom = bottom_dropdown.selectbox(
+                            "↓ Energy output (decrease)",
+                            options=decrease_options,
+                            key="bottom_energy_active"
+                        )
+            
+            # Define color function based on analysis type
+            def get_item_color(item):
+                if "Climate" in analysis_type:
+                    return get_climate_color(item)
+                else:  # Scale frequency
+                    scale_colors = {
+                        'National': '#FF6B6B',
+                        'Regional': '#4ECDC4',
+                        'City': '#45B7D1',
+                        'Urban': '#96CEB4',
+                        'Neighborhood': '#FFE194',
+                        'Building': '#E78F8F',
+                        'Global': '#B83B5E',
+                        'Continental': '#6C5B7B',
+                        'Local': '#F08A5D',
+                        'Municipal': '#4D96FF',
+                    }
+                    for key, color in scale_colors.items():
+                        if key.lower() in str(item).lower():
+                            return color
+                    return '#9B9B9B'
+            
+            # Process top stack if selected
+            if selected_determinant and selected_top and selected_top != "-- Choose energy output --":
+                selected_top_energy = selected_top.split(" [")[0]
+                
+                # Filter records for top stack
+                top_items = []
+                for record in det_records:
+                    if record.get('direction') == 'Increase':
+                        method = record.get('energy_method', '').lower()
+                        if selected_top_energy.lower() in method:
+                            if "Climate" in analysis_type:
+                                item = record.get('climate')
+                            else:
+                                item = record.get('scale')
+                            
+                            if item and item not in ['', None, 'Awaiting data']:
+                                item_clean = item
+                                if " - " in str(item):
+                                    item_clean = item.split(" - ")[0]
+                                item_clean = ''.join([c for c in str(item_clean) if c.isalnum()])
+                                top_items.append(item_clean)
+                
+                if top_items:
+                    top_counts = Counter(top_items)
+                    top_sorted = sorted(top_counts.items(), key=lambda x: x[1], reverse=True)
+                    top_height = sum(top_counts.values())
+            
+            # Process bottom stack if selected
+            if selected_determinant and selected_bottom and selected_bottom != "-- Choose energy output --":
+                selected_bottom_energy = selected_bottom.split(" [")[0]
+                
+                bottom_items = []
+                for record in det_records:
+                    if record.get('direction') == 'Decrease':
+                        method = record.get('energy_method', '').lower()
+                        if selected_bottom_energy.lower() in method:
+                            if "Climate" in analysis_type:
+                                item = record.get('climate')
+                            else:
+                                item = record.get('scale')
+                            
+                            if item and item not in ['', None, 'Awaiting data']:
+                                item_clean = item
+                                if " - " in str(item):
+                                    item_clean = item.split(" - ")[0]
+                                item_clean = ''.join([c for c in str(item_clean) if c.isalnum()])
+                                bottom_items.append(item_clean)
+                
+                if bottom_items:
+                    bottom_counts = Counter(bottom_items)
+                    bottom_sorted = sorted(bottom_counts.items(), key=lambda x: x[1], reverse=True)
+                    bottom_height = sum(bottom_counts.values())
+            
+            # CSS styles
+            st.markdown("""
+            <style>
+                .viz-card {
+                    background-color: transparent;
+                    padding: 0;
+                    box-shadow: none;
+                    display: block;
+                    margin: 10px auto;
+                    width: 100%;
+                    box-sizing: border-box;
+                }
+                .stack-container {
+                    display: flex;
+                    flex-direction: row;
+                    align-items: stretch;
+                    width: 100%;
+                    max-width: 280px;
+                    margin: 0 auto;
+                    padding: 0;
+                }
+                .arrow-label {
+                    font-size: 10px;
+                    font-weight: bold;
+                    color: #2c3e50;
+                    text-align: center;
+                    margin: 2px 0;
+                    white-space: nowrap;
+                    transform: rotate(-90deg);
+                }
+                .arrow-up {
+                    color: #e74c3c;
+                    font-size: 24px;
+                    text-align: center;
+                    line-height: 1;
+                    margin: 0;
+                }
+                .arrow-down {
+                    color: #3498db;
+                    font-size: 24px;
+                    text-align: center;
+                    line-height: 1;
+                    margin: 0;
+                }
+                .bars-column {
+                    display: flex;
+                    flex-direction: column;
+                    flex: 1;
+                }
+                .frequency-box {
+                    width: 100%;
+                    height: 28px;
+                    margin: 0;
+                    padding: 0 3px;
+                    border: none;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: black;
+                    font-size: 10px;
+                    font-weight: bold;
+                    box-sizing: border-box;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+                .display-box {
+                    width: 100%;
+                    height: 36px;
+                    margin: 0;
+                    padding: 0 3px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-weight: bold;
+                    font-size: 13px;
+                    background-color: #f0f2f6;
+                    border: 2px solid #000000;
+                    box-sizing: border-box;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+                div[data-testid="stVerticalBlock"] > div {
+                    padding: 0 !important;
+                }
+                .stMarkdown {
+                    margin: 0 !important;
+                }
+            </style>
+            """, unsafe_allow_html=True)
+            
+           # Replace the visualization section in mid_col with this:
+
+            # Only render visualization if determinant is selected
+            if selected_determinant:
+                # Create a container for the chart with two columns
+                chart_col1, chart_col2 = st.columns([0.3, 1])
+                
+                with chart_col1:
+                    # Arrow column on the left
+                    st.markdown('<div style="display: flex; flex-direction: column; height: 100%;">', unsafe_allow_html=True)
                     
-                    if top_items:
-                        top_counts = Counter(top_items)
-                        top_sorted = sorted(top_counts.items(), key=lambda x: x[1], reverse=True)
-                        
+                    # Top arrow section
+                    if top_height > 0 and selected_top:
+                        st.markdown(f'''
+                        <div style="display: flex; flex-direction: column; justify-content: flex-end; height: {top_height * 28}px;">
+                            <div style="color: #e74c3c; font-size: 24px; text-align: center;">↑</div>
+                            <div style="font-size: 10px; font-weight: bold; color: #2c3e50; text-align: center;">{selected_top.split(" [")[0]}</div>
+                        </div>
+                        ''', unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'''
+                        <div style="display: flex; flex-direction: column; justify-content: flex-end; height: 28px;">
+                            <div style="color: #e74c3c; font-size: 24px; text-align: center;">↑</div>
+                            <div style="font-size: 10px; font-weight: bold; color: #2c3e50; text-align: center;">Increase</div>
+                        </div>
+                        ''', unsafe_allow_html=True)
+                    
+                    # Determinant spacer
+                    st.markdown(f'<div style="height: 36px;"></div>', unsafe_allow_html=True)
+                    
+                    # Bottom arrow section
+                    if bottom_height > 0 and selected_bottom:
+                        st.markdown(f'''
+                        <div style="display: flex; flex-direction: column; justify-content: flex-start; height: {bottom_height * 28}px;">
+                            <div style="color: #3498db; font-size: 24px; text-align: center;">↓</div>
+                            <div style="font-size: 10px; font-weight: bold; color: #2c3e50; text-align: center;">{selected_bottom.split(" [")[0]}</div>
+                        </div>
+                        ''', unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'''
+                        <div style="display: flex; flex-direction: column; justify-content: flex-start; height: 28px;">
+                            <div style="color: #3498db; font-size: 24px; text-align: center;">↓</div>
+                            <div style="font-size: 10px; font-weight: bold; color: #2c3e50; text-align: center;">Decrease</div>
+                        </div>
+                        ''', unsafe_allow_html=True)
+                    
+                    st.markdown('</div>', unsafe_allow_html=True)  # Close arrow column
+                
+                with chart_col2:
+                    # Bars column on the right
+                    st.markdown('<div class="bars-column">', unsafe_allow_html=True)
+                    
+                    # TOP SECTION - Increase results
+                    if top_items and selected_top:
                         for item, count in top_sorted:
                             for i in range(count):
                                 color = get_item_color(item)
@@ -296,49 +402,15 @@ def render_frequency_analysis(db_connection):
                                     st.markdown(f'<div class="frequency-box" style="background-color: {color};">{item}</div>', unsafe_allow_html=True)
                                 else:
                                     st.markdown(f'<div class="frequency-box" style="background-color: {color};"></div>', unsafe_allow_html=True)
-                
-                # Top display box - Energy output increase
-                if 'selected_top' in locals() and selected_top and selected_top != "-- Choose energy output --":
-                    st.markdown(f'<div class="display-box top">↑ {selected_top.split(" [")[0]} (increase)</div>', unsafe_allow_html=True)
-                else:
-                    st.markdown('<div class="display-box top" style="color: #adb5bd;">↑ Energy output (increase)</div>', unsafe_allow_html=True)
-                
-                # Middle display box - Determinant
-                st.markdown(f'<div class="display-box middle">{selected_determinant}</div>', unsafe_allow_html=True)
-                
-                # Bottom display box - Energy output decrease
-                if 'selected_bottom' in locals() and selected_bottom and selected_bottom != "-- Choose energy output --":
-                    st.markdown(f'<div class="display-box bottom">↓ {selected_bottom.split(" [")[0]} (decrease)</div>', unsafe_allow_html=True)
-                else:
-                    st.markdown('<div class="display-box bottom" style="color: #adb5bd;">↓ Energy output (decrease)</div>', unsafe_allow_html=True)
-                
-                # BOTTOM SECTION - Decrease results
-                if 'selected_bottom' in locals() and selected_bottom and selected_bottom != "-- Choose energy output --":
-                    selected_bottom_energy = selected_bottom.split(" [")[0]
+                    else:
+                        # Placeholder to maintain spacing
+                        st.markdown('<div class="frequency-box" style="opacity:0;"></div>', unsafe_allow_html=True)
                     
-                    # Filter records for bottom stack
-                    bottom_items = []
-                    for record in det_records:
-                        if record.get('direction') == 'Decrease':
-                            method = record.get('energy_method', '').lower()
-                            if selected_bottom_energy.lower() in method:
-                                if "Climate" in analysis_type:
-                                    item = record.get('climate')
-                                else:  # Scale frequency
-                                    item = record.get('scale')
-                                
-                                if item and item not in ['', None, 'Awaiting data']:
-                                    # Clean item code
-                                    item_clean = item
-                                    if " - " in str(item):
-                                        item_clean = item.split(" - ")[0]
-                                    item_clean = ''.join([c for c in str(item_clean) if c.isalnum()])
-                                    bottom_items.append(item_clean)
+                    # Middle display box (Determinant)
+                    st.markdown(f'<div class="display-box">{selected_determinant}</div>', unsafe_allow_html=True)
                     
-                    if bottom_items:
-                        bottom_counts = Counter(bottom_items)
-                        bottom_sorted = sorted(bottom_counts.items(), key=lambda x: x[1], reverse=True)
-                        
+                    # BOTTOM SECTION - Decrease results
+                    if bottom_items and selected_bottom:
                         for item, count in bottom_sorted:
                             for i in range(count):
                                 color = get_item_color(item)
@@ -346,22 +418,47 @@ def render_frequency_analysis(db_connection):
                                     st.markdown(f'<div class="frequency-box" style="background-color: {color};">{item}</div>', unsafe_allow_html=True)
                                 else:
                                     st.markdown(f'<div class="frequency-box" style="background-color: {color};"></div>', unsafe_allow_html=True)
-                
+                    else:
+                        # Placeholder to maintain spacing
+                        st.markdown('<div class="frequency-box" style="opacity:0;"></div>', unsafe_allow_html=True)
+                    
+                    st.markdown('</div>', unsafe_allow_html=True)  # Close bars-column
                 st.markdown('</div>', unsafe_allow_html=True)  # Close stack-container
                 st.markdown('</div>', unsafe_allow_html=True)  # Close viz-card
-                
-                # Add button to save this visual
-                if st.button("📸 Add to Analysis Suite", key="save_visual"):
-                    if ('selected_top' in locals() and selected_top and selected_top != "-- Choose energy output --" and
-                        'selected_bottom' in locals() and selected_bottom and selected_bottom != "-- Choose energy output --"):
-                        
-                        # Create a visual representation
-                        visual_html = []
-                        visual_html.append('<div class="viz-card" style="margin-bottom: 10px;">')
-                        visual_html.append('<div class="stack-container">')
-                        
-                        # Add top items
-                        if 'top_items' in locals() and top_items:
+            
+            # Add button to save this visual (moved to left column)
+            with left_col:
+                if selected_determinant and selected_top and selected_bottom:
+                    if st.button("📸 Add to Analysis Suite", key="save_visual"):
+                        if top_items and bottom_items:
+                            visual_html = []
+                            visual_html.append('<div class="viz-card" style="margin-bottom: 10px;">')
+                            visual_html.append('<div class="stack-container">')
+                            
+                            # Add arrow column for saved visual
+                            visual_html.append('<div class="arrow-column">')
+                            
+                            # Top arrow
+                            visual_html.append(f'<div class="arrow-up-section" style="height: {top_height * 28}px;">')
+                            visual_html.append('<div class="arrow-up">↑</div>')
+                            visual_html.append(f'<div class="arrow-label">{selected_top.split(" [")[0]}</div>')
+                            visual_html.append('</div>')
+                            
+                            # Determinant spacer
+                            visual_html.append('<div style="height: 36px;"></div>')
+                            
+                            # Bottom arrow
+                            visual_html.append(f'<div class="arrow-down-section" style="height: {bottom_height * 28}px;">')
+                            visual_html.append('<div class="arrow-down">↓</div>')
+                            visual_html.append(f'<div class="arrow-label">{selected_bottom.split(" [")[0]}</div>')
+                            visual_html.append('</div>')
+                            
+                            visual_html.append('</div>')  # Close arrow-column
+                            
+                            # Bars column
+                            visual_html.append('<div class="bars-column">')
+                            
+                            # Top bars
                             for item, count in top_sorted:
                                 for i in range(count):
                                     color = get_item_color(item)
@@ -369,14 +466,11 @@ def render_frequency_analysis(db_connection):
                                         visual_html.append(f'<div class="frequency-box" style="background-color: {color};">{item}</div>')
                                     else:
                                         visual_html.append(f'<div class="frequency-box" style="background-color: {color};"></div>')
-                        
-                        # Add display boxes
-                        visual_html.append(f'<div class="display-box top">↑ {selected_top.split(" [")[0]} (increase)</div>')
-                        visual_html.append(f'<div class="display-box middle">{selected_determinant}</div>')
-                        visual_html.append(f'<div class="display-box bottom">↓ {selected_bottom.split(" [")[0]} (decrease)</div>')
-                        
-                        # Add bottom items
-                        if 'bottom_items' in locals() and bottom_items:
+                            
+                            # Determinant
+                            visual_html.append(f'<div class="display-box">{selected_determinant}</div>')
+                            
+                            # Bottom bars
                             for item, count in bottom_sorted:
                                 for i in range(count):
                                     color = get_item_color(item)
@@ -384,35 +478,16 @@ def render_frequency_analysis(db_connection):
                                         visual_html.append(f'<div class="frequency-box" style="background-color: {color};">{item}</div>')
                                     else:
                                         visual_html.append(f'<div class="frequency-box" style="background-color: {color};"></div>')
-                        
-                        visual_html.append('</div></div>')
-                        
-                        st.session_state.saved_visuals.append({
-                            'html': ''.join(visual_html),
-                            'type': analysis_type,
-                            'determinant': selected_determinant,
-                            'top_energy': selected_top.split(" [")[0],
-                            'bottom_energy': selected_bottom.split(" [")[0]
-                        })
-                        st.success(f"Added {selected_determinant} analysis to suite!")
-                        st.rerun()
-    
-    # Display saved visuals
-    if st.session_state.saved_visuals:
-        st.divider()
-        st.subheader("📚 Your Analysis Suite")
-        
-        # Add clear all button
-        if st.button("🗑️ Clear All", key="clear_all"):
-            st.session_state.saved_visuals = []
-            st.rerun()
-        
-        # Display saved visuals in a grid
-        cols = st.columns(2)
-        for i, visual in enumerate(st.session_state.saved_visuals):
-            with cols[i % 2]:
-                st.markdown(f"**{visual['type']}**: {visual['determinant']}", unsafe_allow_html=True)
-                st.markdown(visual['html'], unsafe_allow_html=True)
-                if st.button(f"❌ Remove", key=f"remove_{i}"):
-                    st.session_state.saved_visuals.pop(i)
-                    st.rerun()
+                            
+                            visual_html.append('</div>')  # Close bars-column
+                            visual_html.append('</div></div>')
+                            
+                            st.session_state.saved_visuals.append({
+                                'html': ''.join(visual_html),
+                                'type': analysis_type,
+                                'determinant': selected_determinant,
+                                'top_energy': selected_top.split(" [")[0],
+                                'bottom_energy': selected_bottom.split(" [")[0]
+                            })
+                            st.success(f"Added {selected_determinant} analysis to suite!")
+                            st.rerun()
