@@ -528,10 +528,10 @@ def render_frequency_analysis(db_connection):
                     st.success(f"Added {selected_determinant} analysis to suite!")
                     st.rerun()
 
-    # ANALYSIS SUITE SECTION - This appears BELOW everything
+    # ANALYSIS SUITE SECTION
     if st.session_state.saved_visuals:
         st.markdown('<div class="analysis-suite-header"></div>', unsafe_allow_html=True)
-        st.subheader("Your Analysis Suite")
+        st.subheader("Your Analysis Collection")
         
         # Clear all button (centered)
         col1, col2, col3 = st.columns([1, 1, 1])
@@ -540,19 +540,16 @@ def render_frequency_analysis(db_connection):
                 st.session_state.saved_visuals = []
                 st.rerun()
         
-        # Same three-column layout as main area
-        suite_left, suite_mid, suite_right = st.columns([1, 1, 1])
-        
-        with suite_mid:
-            for i, visual in enumerate(st.session_state.saved_visuals):
-                with st.container():
-                    st.markdown(f"**Analysis {i+1}:** {visual['type']} - {visual['determinant']}")
-                    st.markdown(visual['html'], unsafe_allow_html=True)
-                    
-                    # Remove button for this visual
-                    if st.button(f"❌ Remove", key=f"remove_saved_{i}"):
-                        st.session_state.saved_visuals.pop(i)
-                        st.rerun()
-                    
-                    if i < len(st.session_state.saved_visuals) - 1:
-                        st.divider()
+        # Display each saved visual
+        for i, visual in enumerate(st.session_state.saved_visuals):
+            colA, colB, colC = st.columns([1, 1, 1])
+            with colA:
+                if st.button(f"❌ Remove", key=f"remove_saved_{i}"):
+                    st.session_state.saved_visuals.pop(i)
+                    st.rerun()
+            with colB:
+                st.markdown(f"**Analysis {i+1}:**")
+                st.markdown(visual['html'], unsafe_allow_html=True)
+            # colC stays empty
+            if i < len(st.session_state.saved_visuals) - 1:
+                st.divider()
