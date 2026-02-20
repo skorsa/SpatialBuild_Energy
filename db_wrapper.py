@@ -78,7 +78,6 @@ class DatabaseWrapper:
         """Search across multiple fields including ID"""
         print(f"🔍 search_energy_data called with: '{search_term}'")
         search_term = search_term.replace(',', ' ')
-        
         if not search_term:
             return []
         
@@ -334,7 +333,11 @@ class DatabaseWrapper:
                 return {"success": False, "error": str(e)}
 
     def sign_in(self, login_id, password):
-        """Sign in with email OR username and password"""
+        """
+        Sign in with email OR username and password.
+        Returns a dict with 'success' bool, 'user' (auth user object or dict),
+        and 'user_id' (integer from the users table) if successful.
+        """
         if self.use_supabase:
             try:
                 # Try as email first
@@ -342,39 +345,50 @@ class DatabaseWrapper:
                     "email": login_id,
                     "password": password
                 })
-                
-                # Get or create user record in your users table
-                user_id = auth_response.user.id
-                user_email = auth_response.user.email
-                username = auth_response.user.user_metadata.get('username', login_id.split('@')[0])
-                
-                # Check if user exists in your table by auth_id or email
-                existing = self.supabase.table('users').select('*').eq('auth_id', user_id).execute()
-                
-                if not existing.data:
-                    # Also try by username (for legacy users)
+
+                # Get the Supabase Auth user object
+                auth_user = auth_response.user
+                user_email = auth_user.email
+                username = auth_user.user_metadata.get('username', login_id.split('@')[0])
+
+                # Check if user exists in your custom users table by auth_id
+                existing = self.supabase.table('users').select('*').eq('auth_id', auth_user.id).execute()
+
+                if existing.data:
+                    # User already linked – get the integer id
+                    user_record = existing.data[0]
+                    user_id = user_record['id']
+                else:
+                    # No record yet – try to find by username (legacy) or create new
                     existing_by_username = self.supabase.table('users').select('*').eq('username', login_id).execute()
                     if existing_by_username.data:
-                        # Update legacy user with auth_id
+                        # Legacy user: update with auth_id and email
+                        user_record = existing_by_username.data[0]
+                        user_id = user_record['id']
                         self.supabase.table('users').update({
-                            'auth_id': user_id,
+                            'auth_id': auth_user.id,
                             'email': user_email
-                        }).eq('username', login_id).execute()
+                        }).eq('id', user_id).execute()
                     else:
-                        # Create new user record
+                        # Brand new user (should have been created at signup, but just in case)
                         user_data = {
                             'username': username,
                             'email': user_email,
                             'role': 'user',
                             'email_confirmed': True,
-                            'auth_id': user_id
+                            'auth_id': auth_user.id
                         }
-                        self.supabase.table('users').insert(user_data).execute()
-                
-                return {"success": True, "user": auth_response.user}
-                
+                        insert_result = self.supabase.table('users').insert(user_data).execute()
+                        user_id = insert_result.data[0]['id']
+
+                return {
+                    "success": True,
+                    "user": auth_user,
+                    "user_id": user_id
+                }
+
             except Exception as e:
-                # If email login fails, it might be a username
+                # If email login fails, maybe it's a username
                 error_str = str(e).lower()
                 if 'invalid login credentials' in error_str:
                     # Try to find user by username in your table
@@ -386,24 +400,38 @@ class DatabaseWrapper:
                                 "email": user_record.data[0]['email'],
                                 "password": password
                             })
-                            return {"success": True, "user": auth_response.user}
-                        except:
-                            pass
+                            auth_user = auth_response.user
+                            # Now get the user_id (should exist)
+                            existing = self.supabase.table('users').select('id').eq('auth_id', auth_user.id).execute()
+                            if existing.data:
+                                user_id = existing.data[0]['id']
+                            else:
+                                # Fallback – shouldn't happen
+                                user_id = user_record.data[0]['id']
+                            return {
+                                "success": True,
+                                "user": auth_user,
+                                "user_id": user_id
+                            }
+                        except Exception as inner_e:
+                            return {"success": False, "error": str(inner_e)}
                 return {"success": False, "error": str(e)}
+
         else:
-            # SQLite fallback - check both username and email
+            # SQLite fallback – check both username and email
             cursor = self.conn.cursor()
             cursor.execute("SELECT * FROM users WHERE username = ? OR email = ?", (login_id, login_id))
             user = cursor.fetchone()
-            if user and bcrypt.checkpw(password.encode('utf-8'), user[2]):
+            if user and bcrypt.checkpw(password.encode('utf-8'), user[2]):  # password is at index 2
                 return {
-                    "success": True, 
+                    "success": True,
                     "user": {
-                        "id": user[0], 
-                        "email": user[4] if len(user) > 4 else login_id,
+                        "id": user[0],
                         "username": user[1],
-                        "role": user[3]
-                    }
+                        "role": user[3],
+                        "email": user[4] if len(user) > 4 else None
+                    },
+                    "user_id": user[0]  # integer id
                 }
             return {"success": False, "error": "Invalid credentials"}
     
@@ -529,6 +557,60 @@ class DatabaseWrapper:
                 LIMIT ?
             """, (limit,))
             return cursor.fetchall()
+
+    def save_analysis(self, user_id, analysis_type, determinant, top_energy, bottom_energy, html):
+        """Save a user's analysis to the database."""
+        data = {
+            'user_id': user_id,
+            'analysis_type': analysis_type,
+            'determinant': determinant,
+            'top_energy': top_energy,
+            'bottom_energy': bottom_energy,
+            'html': html
+        }
+        if self.use_supabase:
+            result = self.supabase.table('user_saved_analyses').insert(data).execute()
+            return result.data
+        else:
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                INSERT INTO user_saved_analyses 
+                (user_id, analysis_type, determinant, top_energy, bottom_energy, html)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (user_id, analysis_type, determinant, top_energy, bottom_energy, html))
+            self.conn.commit()
+            return cursor.lastrowid
+
+    def get_user_analyses(self, user_id):
+        """Retrieve all saved analyses for a user."""
+        if self.use_supabase:
+            result = self.supabase.table('user_saved_analyses') \
+                .select('*') \
+                .eq('user_id', user_id) \
+                .order('created_at', desc=True) \
+                .execute()
+            return result.data
+        else:
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                SELECT * FROM user_saved_analyses 
+                WHERE user_id = ? 
+                ORDER BY created_at DESC
+            ''', (user_id,))
+            return cursor.fetchall()
+
+    def delete_analysis(self, analysis_id):
+        """Delete a specific saved analysis."""
+        if self.use_supabase:
+            self.supabase.table('user_saved_analyses') \
+                .delete() \
+                .eq('id', analysis_id) \
+                .execute()
+        else:
+            cursor = self.conn.cursor()
+            cursor.execute('DELETE FROM user_saved_analyses WHERE id = ?', (analysis_id,))
+            self.conn.commit()
+
 
     # ============= HELPER METHODS =============
     

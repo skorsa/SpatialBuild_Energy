@@ -2548,6 +2548,7 @@ def render_login_signup_forms():
                         st.session_state.logged_in = True
                         st.session_state.current_user = username
                         st.session_state.user_role = "user"
+                        st.session_state.user_id = result["user_id"]
                         st.success(f"Welcome, {username}!")
                         st.rerun()
                     else:
