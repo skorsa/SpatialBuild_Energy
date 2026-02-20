@@ -7,10 +7,6 @@
     31.5,
     121.8
   ],
-  "Global": [
-    20.0,
-    0.0
-  ],
   "Urban China": [
     35.0,
     105.0
@@ -23,157 +19,383 @@
     35.0,
     108.0
   ],
-  "France": [
-    46.603354,
-    1.8883335
+  "Dallas, Texas, USA": [
+    32.7767,
+    -96.797
   ],
-  "United States": [
-    39.7837304,
-    -100.445882
+  "Tallahassee, Florida, USA": [
+    30.4383,
+    -84.2807
   ],
-  "United States ": [
-    39.7837304,
-    -100.445882
+  "Wallonia, Belgium": [
+    50.5,
+    4.5
   ],
-  "Switzerland": [
-    46.7985624,
-    8.2319736
+  "Delhi, India, (specifically, Safdarjung and NPL areas)": [
+    28.6139,
+    77.209
   ],
-  "San Antonio, Texas, USA": [
-    29.4246002,
-    -98.4951405
+  "Eastern Europe (specifically 11 post-communist countries: Slovenia, Slovak Republic, Czech Republic, Romania, Poland, Lithuania, Latvia, Estonia, Belarus, Russia, Ukraine)": [
+    52.0,
+    23.0
   ],
-  "Jiangsu Province, China": [
-    33.0000001,
-    119.9999999
+  "Beijing and Shanghai, China": [
+    35.0,
+    110.0
   ],
-  "Italy ": [
-    42.6384261,
-    12.674297
-  ],
-  "Taiwan": [
-    23.9739374,
-    120.9820179
-  ],
-  "Greece": [
-    38.9953683,
-    21.9877132
-  ],
-  "Ningbo, China": [
-    29.8622194,
-    121.6203873
-  ],
-  "Netherlands": [
-    52.2434979,
-    5.6343227
-  ],
-  "Kuwait": [
-    29.2733964,
-    47.4979476
-  ],
-  "Illinois, USA": [
-    40.0796606,
-    -89.4337288
-  ],
-  "England, United Kingdom": [
-    52.5310214,
-    -1.2649062
-  ],
-  "Portland Metropolitan Area (PMA), Oregon, USA": [
-    43.9792797,
-    -120.737257
-  ],
-  "United Kingdom": [
-    54.7023545,
-    -3.2765753
+  "China": [
+    35.8617,
+    104.1954
   ],
   "Chongqing, China": [
     29.5697328,
     106.5842092
   ],
-  "Tema, Ghana": [
-    5.6596409,
-    -0.0096771
+  "Coastal cities and islands in China": [
+    30.0,
+    120.0
   ],
-  "Spain": [
-    39.3260685,
-    -4.8379791
+  "Countries along the Belt and Road (B&R) Initiative": [
+    40.0,
+    100.0
   ],
-  "South Africa": [
-    -28.8166236,
-    24.991639
+  "Dublin, Ireland": [
+    53.3493795,
+    -6.2605593
   ],
-  "Doha, Qatar": [
-    25.3108807,
-    51.5081812
+  "Eight major Indian cities": [
+    22.0,
+    80.0
   ],
-  "Detroit (Wayne County), Michigan, USA": [
-    42.3641217,
-    -83.0884919
+  "Idealized city at 45\u00b0N latitude": [
+    45.0,
+    0.0
   ],
-  "China": [
-    35.000074,
-    104.999927
+  "Italy": [
+    41.8719,
+    12.5674
   ],
-  "Mainland Portugal": [
-    39.5565599,
-    -8.2770265
+  "Li\u00e8ge, Belgium": [
+    50.6450944,
+    5.5736112
   ],
-  "Tainan City, Taiwan": [
-    22.9921257,
-    120.1852496
+  "London, UK": [
+    51.5074456,
+    -0.1277653
+  ],
+  "Los Angeles County, California, USA": [
+    34.3155072,
+    -118.209681
   ],
   "Seoul, South Korea": [
     37.5666791,
     126.9782914
   ],
-  "Guangzhou, China": [
-    23.1288454,
-    113.2590064
+  "Shanghai, China": [
+    31.2312707,
+    121.4700152
   ],
-  "London, UK ": [
+  "Southern Chile (La Araucan\u00eda, Los R\u00edos, Los Lagos regions)": [
+    -39.0,
+    -72.0
+  ],
+  "United States": [
+    39.8283,
+    -98.5795
+  ],
+  "United States (national coverage)": [
+    39.8283,
+    -98.5795
+  ],
+  "Not Specified": null,
+  "Global": null,
+  "South Korea": [
+    36.638392,
+    127.6961188
+  ],
+  "Philadelphia, USA": [
+    39.9527237,
+    -75.1635262
+  ],
+  "Japan": [
+    36.5748441,
+    139.2394179
+  ],
+  "London": [
     51.5074456,
     -0.1277653
-  ],
-  "St. Paul, Minnesota, and Tallahassee, Florida, USA": [
-    30.429117,
-    -84.2803633
-  ],
-  "Seattle, Washington, USA": [
-    47.6038321,
-    -122.330062
-  ],
-  "Los Angeles County, California, USA ": [
-    34.3155072,
-    -118.209681
-  ],
-  "The Netherlands": [
-    52.2434979,
-    5.6343227
-  ],
-  "Seven cities in China (Harbin, Urumqi, Beijing, Shanghai, Changsha, Kunming, Hong Kong)": [
-    22.379202,
-    114.1076919
   ],
   "Cameroon": [
     4.6125522,
     13.1535811
   ],
-  "United States of America": [
-    39.7837304,
-    -100.445882
+  "Ilam, Iran": [
+    33.1545696,
+    46.7576343
   ],
-  "Italy": [
-    42.6384261,
-    12.674297
+  "Beijing, China": [
+    39.9057136,
+    116.3912972
   ],
-  "EU-28 countries": [
-    21.4141802,
-    39.8873702
+  "Padua, Italy": [
+    45.4077172,
+    11.8734455
   ],
   "Groningen, Netherlands": [
     53.2190652,
     6.5680077
+  ],
+  "Tokyo, Japan": [
+    35.6768601,
+    139.7638947
+  ],
+  "Harbin, Tianjin, and Shanghai, China": [
+    31.3068662,
+    121.4943346
+  ],
+  "Qujiang Campus, Xi\u2019an Jiaotong University, Xi\u2019an, China": [
+    34.261004,
+    108.9423363
+  ],
+  "Austria": [
+    47.59397,
+    14.12456
+  ],
+  "Phoenix, Arizona, USA": [
+    33.4484367,
+    -112.074141
+  ],
+  "New York City (NYC), USA": [
+    40.750632,
+    -73.9687884
+  ],
+  "Tema, Ghana": [
+    5.6596409,
+    -0.0096771
+  ],
+  "Taipei, Taiwan": [
+    25.0375198,
+    121.5636796
+  ],
+  "Tianjin, China": [
+    39.0844897,
+    117.1956724
+  ],
+  "Xiequ Garden, Beijing, China": [
+    39.9057136,
+    116.3912972
+  ],
+  "Global, (136 countries)": [
+    43.2258491,
+    -89.3353662
+  ],
+  "Greece": [
+    38.9953683,
+    21.9877132
+  ],
+  "Los Angeles, California, USA": [
+    34.0536909,
+    -118.242766
+  ],
+  "New York City, USA": [
+    40.7127281,
+    -74.0060152
+  ],
+  "15 cities in Jiangsu Province, Eastern China": [
+    22.2730777,
+    114.2335938
+  ],
+  "Kuwait": [
+    29.2733964,
+    47.4979476
+  ],
+  "Guayaquil (Ecuador), Lima (Peru), Antofagasta and Valpara\u00edso (Chile)": [
+    -2.1900572,
+    -79.8868669
+  ],
+  "Global, (developed and developing countries)": [
+    55.702215,
+    12.5592485
+  ],
+  "Guangzhou, China": [
+    23.1288454,
+    113.2590064
+  ],
+  "Jianhu, China": [
+    33.4401783,
+    119.7842741
+  ],
+  "Hong Kong (China), Seoul (South Korea), Tokyo (Japan)": [
+    35.6768601,
+    139.7638947
+  ],
+  "Doha, Qatar": [
+    25.3108807,
+    51.5081812
+  ],
+  "Rome, Italy and Antofagasta, Chile": [
+    -31.7613365,
+    -71.3187697
+  ],
+  "France": [
+    46.603354,
+    1.8883335
+  ],
+  "Sacramento, California, USA": [
+    38.5810606,
+    -121.493895
+  ],
+  "Pittsburgh, Pennsylvania, USA": [
+    40.4406968,
+    -80.0025666
+  ],
+  "Switzerland": [
+    46.7985624,
+    8.2319736
+  ],
+  "Xiamen, China": [
+    24.4801069,
+    118.0853479
+  ],
+  "South Africa": [
+    -28.8166236,
+    24.991639
+  ],
+  "St. Paul, Minnesota USA": [
+    44.9497487,
+    -93.0931028
+  ],
+  "Harbin, China": [
+    45.7593633,
+    126.6276177
+  ],
+  "Vienna, Austria": [
+    48.2083537,
+    16.3725042
+  ],
+  "Aarhus, Denmark": [
+    56.1496278,
+    10.2134046
+  ],
+  "Newcastle upon Tyne, United Kingdom": [
+    54.9738474,
+    -1.6131572
+  ],
+  "Netherlands": [
+    52.2434979,
+    5.6343227
+  ],
+  "Mainland Portugal": [
+    39.5565599,
+    -8.2770265
+  ],
+  "Istanbul, Turkey": [
+    41.006381,
+    28.9758715
+  ],
+  "Intra-Americas Region (Caribbean, Central America, south-central Mexico, and northwestern South America)": [
+    41.2694643,
+    -83.6506433
+  ],
+  "Finland": [
+    63.2467777,
+    25.9209164
+  ],
+  "Brazil": [
+    -10.3333333,
+    -53.2
+  ],
+  "Tel Aviv, Israel": [
+    32.0852997,
+    34.7818064
+  ],
+  "Taipei City, Taiwan": [
+    25.0285262,
+    121.4197282
+  ],
+  "Nanjing, China": [
+    32.0438284,
+    118.7788631
+  ],
+  "Ningbo, China": [
+    29.8622194,
+    121.6203873
+  ],
+  "Seven cities in China (Harbin, Urumqi, Beijing, Shanghai, Changsha, Kunming, Hong Kong)": [
+    22.379202,
+    114.1076919
+  ],
+  "Spain": [
+    39.3260685,
+    -4.8379791
+  ],
+  "Rome, Italy": [
+    41.8933203,
+    12.4829321
+  ],
+  "China (30 provinces)": [
+    27.7105114,
+    105.3019062
+  ],
+  "Dubai, United Arab Emirates (UAE)": [
+    24.0002488,
+    53.9994829
+  ],
+  "Portland Metropolitan Area (PMA), Oregon, USA": [
+    43.9792797,
+    -120.737257
+  ],
+  "The Netherlands": [
+    52.2434979,
+    5.6343227
+  ],
+  "Jiangsu Province, China": [
+    33.0000001,
+    119.9999999
+  ],
+  "Wuhan, China": [
+    30.5611595,
+    114.2889707
+  ],
+  "San Antonio, Texas, USA": [
+    29.4246002,
+    -98.4951405
+  ],
+  "Singapore": [
+    1.357107,
+    103.8194992
+  ],
+  "Five cities in China (Shuangyashan, Xuzhou, Nanjing, Fuzhou, Pu'er)": [
+    26.1154034,
+    119.309314
+  ],
+  "Chicago, Illinois, USA": [
+    41.8755616,
+    -87.6244212
+  ],
+  "United Kingdom": [
+    54.7023545,
+    -3.2765753
+  ],
+  "Eindhoven, Netherlands": [
+    51.4392648,
+    5.478633
+  ],
+  "Copenhagen, Denmark (North European setting)": [
+    55.6867243,
+    12.5700724
+  ],
+  "Taiwan": [
+    23.9739374,
+    120.9820179
+  ],
+  "New York City, US": [
+    40.7127281,
+    -74.0060152
+  ],
+  "Islam Abad, Pakistan": [
+    34.0435652,
+    72.1065157
   ],
   "Melbourne, Australia": [
     -37.8142454,
@@ -183,356 +405,132 @@
     51.9383777,
     15.5050408
   ],
-  "New York City (NYC), USA": [
-    40.750632,
-    -73.9687884
-  ],
-  "Eindhoven, Netherlands": [
-    51.4392648,
-    5.478633
-  ],
-  "Atlanta, Georgia, USA (Grove Park neighborhood)": [
-    33.7760843,
-    -84.4481983
-  ],
-  "Sacramento, California, USA": [
-    38.5810606,
-    -121.493895
+  "Seoul, South Korea (focus on Gangnam district)": [
+    37.5666791,
+    126.9782914
   ],
   "Gwalior city, Madhya Pradesh, India": [
     26.2037247,
     78.1573628
   ],
-  "Japan": [
-    36.5748441,
-    139.2394179
-  ],
-  "Chongqing, China ": [
-    29.5697328,
-    106.5842092
-  ],
-  "Belgium (Walloon Region)": [
-    50.5555697,
-    4.5522769
-  ],
-  "Austria": [
-    47.59397,
-    14.12456
-  ],
-  "Pittsburgh, Pennsylvania, USA": [
-    40.4406968,
-    -80.0025666
-  ],
-  "Padua, Italy": [
-    45.4077172,
-    11.8734455
-  ],
-  "Aarhus, Denmark": [
-    56.1496278,
-    10.2134046
-  ],
-  "Greater Dublin Region, Ireland": [
-    52.865196,
-    -7.9794599
-  ],
-  "Singapore": [
-    1.357107,
-    103.8194992
-  ],
-  "Los Angeles, California, USA": [
-    34.0536909,
-    -118.242766
-  ],
-  "Busan, South Korea": [
-    35.1799528,
-    129.0752365
-  ],
-  "Toronto, Ontario, Canada": [
-    43.6534817,
-    -79.3839347
-  ],
   "Castell\u00f3n de la Plana, Spain": [
     39.9860347,
     -0.0377354
   ],
-  "New York City, USA": [
-    40.7127281,
-    -74.0060152
+  "Amman, Jordan": [
+    31.9515694,
+    35.9239625
   ],
-  "New York City, US": [
-    40.7127281,
-    -74.0060152
-  ],
-  "Dublin, Ireland ": [
-    53.3493795,
-    -6.2605593
-  ],
-  "Texas, US": [
-    31.2638905,
-    -98.5456116
-  ],
-  "Chicago, Illinois, USA": [
-    41.8755616,
-    -87.6244212
-  ],
-  "Walloon Region, Belgium": [
-    50.5555697,
-    4.5522769
-  ],
-  "Countries along the Belt and Road (B&R) Initiative": null,
-  "Shanghai, China ": [
-    31.2312707,
-    121.4700152
-  ],
-  "Nanjing, China": [
-    32.0438284,
-    118.7788631
-  ],
-  "Istanbul, Turkey": [
-    41.006381,
-    28.9758715
-  ],
-  "Wuhan, China": [
-    30.5611595,
-    114.2889707
-  ],
-  "Taipei City, Taiwan": [
-    25.063267,
-    121.45788
-  ],
-  "Harbin, China": [
-    45.7593633,
-    126.6276177
-  ],
-  "London, United Kingdom": [
-    51.5074456,
-    -0.1277653
-  ],
-  "Calgary, Alberta, Canada": [
-    51.0456064,
-    -114.057541
-  ],
-  "Dubai, United Arab Emirates (UAE)": [
-    24.0002488,
-    53.9994829
-  ],
-  "Rome, Italy and Antofagasta, Chile": [
-    -31.7613365,
-    -71.3187697
-  ],
-  "Newcastle upon Tyne, United Kingdom": [
-    54.9738474,
-    -1.6131572
-  ],
-  "Coastal cities and islands in China": null,
-  "Dubai, United Arab Emirates": [
-    25.0742823,
-    55.1885387
-  ],
-  "Gainesville, Florida, United States": [
-    29.6519684,
-    -82.3249846
-  ],
-  "Seoul, South Korea (focus on Gangnam district)\n": [
-    37.5666791,
-    126.9782914
-  ],
-  "Riyadh, Saudi Arabia": [
-    23.333333,
-    45.333333
-  ],
-  "Idealized city at 45\u00b0N latitude ": null,
-  "Gujarat, India": [
-    22.3850051,
-    71.745261
-  ],
-  "Li\u00e8ge, Belgium ": [
-    50.6450944,
-    5.5736112
-  ],
-  "Global ": [
-    55.702215,
-    12.5592485
-  ],
-  "China ": [
-    35.000074,
-    104.999927
-  ],
-  "Phoenix, Arizona, USA": [
-    33.4484367,
-    -112.074141
-  ],
-  "South Korea": [
-    36.638392,
-    127.6961188
-  ],
-  "Bahrain": [
-    26.1551249,
-    50.5344606
-  ],
-  "Los Angeles County, California, USA": [
-    34.3155072,
-    -118.209681
-  ],
-  "Eight major Indian cities": null,
-  "Intra-Americas Region (Caribbean, Central America, south-central Mexico, and northwestern South America)": [
-    41.2694643,
-    -83.6506433
-  ],
-  "Harbin, Tianjin, and Shanghai, China": [
-    31.3068662,
-    121.4943346
-  ],
-  "Southern Chile (La Araucan\u00eda, Los R\u00edos, Los Lagos regions)": null,
-  "Dhaka, Bangladesh": [
-    23.7643863,
-    90.3890144
-  ],
-  "Osaka, Japan": [
-    34.6937569,
-    135.5014539
-  ],
-  "United States (contiguous)": [
-    36.8184301,
-    -99.0090672
-  ],
-  "Islam Abad, Pakistan": [
-    34.0435652,
-    72.1065157
-  ],
-  "15 cities in Jiangsu Province, Eastern China": [
-    22.2730777,
-    114.2335938
-  ],
-  "Vienna, Austria": [
-    48.2083537,
-    16.3725042
-  ],
-  "Five cities in China (Shuangyashan, Xuzhou, Nanjing, Fuzhou, Pu'er)": [
-    26.1154034,
-    119.309314
-  ],
-  "Hong Kong (China), Seoul (South Korea), Tokyo (Japan)": [
-    35.6768601,
-    139.7638947
-  ],
-  "Tianjin, China": [
-    39.0844897,
-    117.1956724
-  ],
-  "Beijing and Shanghai, China ": [
-    35.000074,
-    104.999927
-  ],
-  "Finland": [
-    63.2467777,
-    25.9209164
-  ],
-  "Global (developed and developing countries)": null,
-  "China (30 provinces)": [
-    27.7105114,
-    105.3019062
-  ],
-  "Beijing and Shanghai, China": [
-    35.000074,
-    104.999927
-  ],
-  "Global (136 countries)": null,
-  "Jianhu, China": [
-    33.4401783,
-    119.7842741
-  ],
-  "Copenhagen, Denmark (North European setting)": [
-    55.6867243,
-    12.5700724
-  ],
-  "Dallas, TX": [
-    32.7762719,
-    -96.7968559
-  ],
-  "Philadelphia, USA": [
-    39.9527237,
-    -75.1635262
-  ],
-  "Ilam, Iran": [
-    33.1545696,
-    46.7576343
-  ],
-  "United States (national coverage)": null,
-  "Xiamen, China": [
-    24.5438732,
-    118.0768065
-  ],
-  "Tehran, Iran": [
-    35.6892523,
-    51.3896004
-  ],
-  "Taipei, Taiwan": [
-    25.0375198,
-    121.5636796
+  "United States of America": [
+    39.7837304,
+    -100.445882
   ],
   "Jinan, Shandong Province, China (Cold Region IIB)": [
     36.6519754,
     117.1138479
   ],
-  "Tel Aviv, Israel": [
-    32.0852997,
-    34.7818064
+  "Osaka, Japan": [
+    34.6937569,
+    135.5014539
   ],
-  "Beijing, China": [
-    39.9057136,
-    116.3912972
+  "Tehran, Iran": [
+    35.6892523,
+    51.3896004
+  ],
+  "Toronto, Ontario, Canada": [
+    43.6534817,
+    -79.3839347
+  ],
+  "Gainesville, Florida, United States": [
+    29.6519684,
+    -82.3249846
+  ],
+  "Seattle, Washington, USA": [
+    47.6038321,
+    -122.330062
+  ],
+  "Atlanta, Georgia, USA (Grove Park neighborhood)": [
+    33.7760843,
+    -84.4481983
+  ],
+  "Detroit (Wayne County), Michigan, USA": [
+    42.3641217,
+    -83.0884919
   ],
   "Beijing, China.": [
     39.9057136,
     116.3912972
   ],
-  "Tokyo, Japan": [
-    35.6768601,
-    139.7638947
-  ],
-  "Xiequ Garden, Beijing, China": [
-    39.9057136,
-    116.3912972
-  ],
-  "Qujiang Campus, Xi\u2019an Jiaotong University, Xi\u2019an, China": [
-    34.261004,
-    108.9423363
-  ],
-  "Guayaquil (Ecuador), Lima (Peru), Antofagasta and Valpara\u00edso (Chile)": [
-    -2.1900572,
-    -79.8868669
-  ],
-  "Delhi, India (specifically, Safdarjung and NPL areas)": [
-    28.6138954,
-    77.2090057
-  ],
-  "Rome, Italy": [
-    41.8933203,
-    12.4829321
-  ],
-  "Athens, Greece": [
-    37.9755648,
-    23.7348324
-  ],
-  "Pearl River Delta, China": [
-    22.3028341,
-    113.762389
-  ],
-  "Brazil": [
-    -10.3333333,
-    -53.2
+  "Gujarat, India": [
+    22.3850051,
+    71.745261
   ],
   "Seattle, United States": [
     47.6038321,
     -122.330062
   ],
-  "Eastern Europe (specifically 11 post-communist countries: Slovenia, Slovak Republic, Czech Republic, Romania, Poland, Lithuania, Latvia, Estonia, Belarus, Russia, Ukraine)": [
-    48.5727918,
-    39.3145456
+  "Dhaka, Bangladesh": [
+    23.7643863,
+    90.3890144
   ],
-  "London": [
+  "Texas, US": [
+    31.2638905,
+    -98.5456116
+  ],
+  "Dubai, United Arab Emirates": [
+    25.0742823,
+    55.1885387
+  ],
+  "Pearl River Delta, China": [
+    22.3028341,
+    113.762389
+  ],
+  "Calgary, Alberta, Canada": [
+    51.0456064,
+    -114.057541
+  ],
+  "United States (contiguous)": [
+    36.8184301,
+    -99.0090672
+  ],
+  "Busan, South Korea": [
+    35.1799528,
+    129.0752365
+  ],
+  "Tainan City, Taiwan": [
+    22.9921257,
+    120.1852496
+  ],
+  "Greater Dublin Region, Ireland": [
+    52.865196,
+    -7.9794599
+  ],
+  "EU-28 countries": [
+    21.4141802,
+    39.8873702
+  ],
+  "Riyadh, Saudi Arabia": [
+    23.333333,
+    45.333333
+  ],
+  "London, United Kingdom": [
     51.5074456,
     -0.1277653
+  ],
+  "England, United Kingdom": [
+    52.5310214,
+    -1.2649062
+  ],
+  "Athens, Greece": [
+    37.9755648,
+    23.7348324
+  ],
+  "Bahrain": [
+    26.1551249,
+    50.5344606
+  ],
+  "Illinois, USA": [
+    40.0796606,
+    -89.4337288
   ]
 }

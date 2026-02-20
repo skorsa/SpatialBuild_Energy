@@ -40,21 +40,27 @@ class DatabaseWrapper:
     # ============= ENERGY DATA METHODS =============
     
     def get_energy_data(self, filters=None, limit=1000):
-        """Get energy_data records with optional filters"""
+        """Get energy_data records with optional filters and auto token refresh."""
         if self.use_supabase:
-            query = self.supabase.table('energy_data').select('*')
-            
-            if filters:
-                for key, value in filters.items():
-                    if value is not None and value != "":
-                        query = query.eq(key, value)
-            
-            if limit:
-                query = query.limit(limit)
-            
-            result = query.execute()
-            return result.data
+            try:
+                # First attempt - execute the query
+                return self._execute_energy_query(filters, limit)
+            except Exception as e:
+                # Check if it's a JWT expiration error
+                error_str = str(e).lower()
+                if 'jwt expired' in error_str or 'pgrst303' in error_str:
+                    try:
+                        # Refresh token and retry once
+                        self.supabase.auth.refresh_session()
+                        return self._execute_energy_query(filters, limit)
+                    except Exception as refresh_error:
+                        # If refresh fails, raise the original error
+                        raise e
+                else:
+                    # Not a token error, re-raise
+                    raise e
         else:
+            # SQLite mode - unchanged
             cursor = self.conn.cursor()
             sql = "SELECT * FROM energy_data"
             params = []
@@ -73,7 +79,22 @@ class DatabaseWrapper:
             
             cursor.execute(sql, params)
             return cursor.fetchall()
-    
+
+    def _execute_energy_query(self, filters=None, limit=1000):
+        """Internal method to execute the actual Supabase query for energy_data."""
+        query = self.supabase.table('energy_data').select('*')
+        
+        if filters:
+            for key, value in filters.items():
+                if value is not None and value != "":
+                    query = query.eq(key, value)
+        
+        if limit:
+            query = query.limit(limit)
+        
+        result = query.execute()
+        return result.data
+        
     def search_energy_data(self, search_term, fields=None, limit=100):
         """Search across multiple fields including ID"""
         print(f"🔍 search_energy_data called with: '{search_term}'")
