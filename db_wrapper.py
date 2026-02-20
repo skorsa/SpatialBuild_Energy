@@ -77,6 +77,7 @@ class DatabaseWrapper:
     def search_energy_data(self, search_term, fields=None, limit=100):
         """Search across multiple fields including ID"""
         print(f"🔍 search_energy_data called with: '{search_term}'")
+        search_term = search_term.replace(',', ' ')
         
         if not search_term:
             return []
