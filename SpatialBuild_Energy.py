@@ -308,7 +308,7 @@ def contribute():
                     final_climate = selected_climate
 
         with col_3:
-            location = st.text_input("Location (optional)", key="contribute_location", 
+            location = st.text_input("Location", key="contribute_location", 
                                     placeholder="e.g., United States, Europe, Specific city/region")
 
         # Second row: Building Use, Approach, and Sample Size
@@ -338,7 +338,7 @@ def contribute():
 
         with col_6:
             sample_size = st.text_input(
-                "Sample Size (optional)", 
+                "Sample Size", 
                 key="contribute_sample_size",
                 placeholder="e.g., 50 buildings, 1000 households, 5 cities"
             )
