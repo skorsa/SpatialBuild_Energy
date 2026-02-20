@@ -286,11 +286,11 @@ def render_frequency_analysis(db_connection):
                 width: auto;  /* Fixed width for bars */
             }
             .frequency-box {
-                width: auto;  /* Fixed width */
+                width: 100%;
                 height: 28px;
                 margin: 0;
                 padding: 0 3px;
-                border: none;
+                border: 1px dashed rgba(0,0,0,0.3);  /* Subtle dashed border */
                 display: flex;
                 align-items: center;
                 justify-content: center;
@@ -301,6 +301,14 @@ def render_frequency_analysis(db_connection):
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
+                border-bottom: 1px dashed rgba(0,0,0,0.3);
+            }
+            .frequency-box:last-child {
+                border-bottom: 1px dashed rgba(0,0,0,0.3);
+            }
+            /* Remove border overlap between stacked boxes */
+            .frequency-box + .frequency-box {
+                border-top: none;
             }
             .display-box {
                 width: auto;  /* Fixed width */
@@ -349,17 +357,14 @@ def render_frequency_analysis(db_connection):
                     for item, count in top_sorted:
                         for i in range(count):
                             color = get_item_color(item)
-                            if i == 0:
-                                st.markdown(f'<div class="frequency-box" style="background-color: {color};">{item}</div>', unsafe_allow_html=True)
-                            else:
-                                st.markdown(f'<div class="frequency-box" style="background-color: {color};"></div>', unsafe_allow_html=True)
+                            st.markdown(f'<div class="frequency-box" style="background-color: {color};">{item}</div>', unsafe_allow_html=True)
                 else:
                     # Placeholder to maintain spacing
                     st.markdown('<div class="frequency-box" style="opacity:0;"></div>', unsafe_allow_html=True)
                 
                 # Middle display box (Determinant)
                 st.markdown(f'<div class="display-box">{selected_determinant}</div>', unsafe_allow_html=True)
-                
+
                 # BOTTOM SECTION - Decrease results
                 if bottom_items and selected_bottom:
                     for item, count in bottom_sorted:
@@ -461,10 +466,8 @@ def render_frequency_analysis(db_connection):
                         for item, count in top_sorted:
                             for i in range(count):
                                 color = get_item_color(item)
-                                if i == 0:
-                                    visual_html.append(f'<div style="width: 100%; height: 28px; background-color: {color}; display: flex; align-items: center; justify-content: center; color: black; font-size: 12px;">{item}</div>')
-                                else:
-                                    visual_html.append(f'<div style="width: 100%; height: 28px; background-color: {color};"></div>')
+                                # Show label on EVERY box with dashed border
+                                visual_html.append(f'<div style="width: 100%; height: 28px; background-color: {color}; display: flex; align-items: center; justify-content: center; color: black; font-size: 12px; border: 1px dashed rgba(0,0,0,0.3); box-sizing: border-box;">{item}</div>')
                         
                         # Determinant box
                         visual_html.append(f'<div style="width: 100%; height: 36px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 13px; background-color: #f0f2f6; border: 2px solid #000000; box-sizing: border-box;">{selected_determinant}</div>')
@@ -473,10 +476,7 @@ def render_frequency_analysis(db_connection):
                         for item, count in bottom_sorted:
                             for i in range(count):
                                 color = get_item_color(item)
-                                if i == 0:
-                                    visual_html.append(f'<div style="width: 100%; height: 28px; background-color: {color}; display: flex; align-items: center; justify-content: center; color: black; font-size: 12px;">{item}</div>')
-                                else:
-                                    visual_html.append(f'<div style="width: 100%; height: 28px; background-color: {color};"></div>')
+                                visual_html.append(f'<div style="width: 100%; height: 28px; background-color: {color}; display: flex; align-items: center; justify-content: center; color: black; font-size: 12px; border: 1px dashed rgba(0,0,0,0.3); box-sizing: border-box;">{item}</div>')
                         
                         visual_html.append('</div>')  # Close left column
                         
