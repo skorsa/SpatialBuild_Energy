@@ -200,106 +200,115 @@ def render_location_map(db_connection):
         st.info("📭 No location data available for mapping.")
         return
     
+    # In render_location_map, replace the map rendering section with this:
+
     # Create a hash of filter settings to detect changes
     filter_hash = hash(f"{show_clusters}_{marker_size}_{max_markers}")
-    
+
     if 'last_filter_hash' not in st.session_state:
         st.session_state.last_filter_hash = filter_hash
-    
-    # Check if filters changed
+
+    # Check if filters changed OR if this is the first run
     filters_changed = st.session_state.last_filter_hash != filter_hash
-    
-    # Create map in a placeholder to control updates
-    map_placeholder = st.empty()
-    
-    if filters_changed or not st.session_state.map_rendered:
-        with map_placeholder.container():
-            # Create map
-            m = folium.Map(location=[20, 0], zoom_start=2, tiles='CartoDB positron')
+
+    # Always render the map, but only recreate when filters change
+    if filters_changed or 'map_rendered' not in st.session_state:
+        # Create new map
+        m = folium.Map(location=[20, 0], zoom_start=2, tiles='CartoDB positron')
+        
+        # Add markers (your existing marker code)
+        for group_key, group_data in location_groups.items():
+            radius = marker_size + min(group_data['count'] * 1.5, 15)
             
-            # Add markers (your existing marker code)
-            for group_key, group_data in location_groups.items():
-                radius = marker_size + min(group_data['count'] * 1.5, 15)
-                
-                if show_clusters and group_data['count'] > 1:
-                    for j, record in enumerate(group_data['records'][:30]):
-                        dx, dy = get_spiral_offset(j, group_data['count'], 0.03)
-                        offset_coords = [group_data['coords'][0] + dx, group_data['coords'][1] + dy]
-                        
-                        marker_color = get_climate_color(record['climate'])
-                        direction_icon = "📈" if record['direction'] == 'Increase' else "📉"
-                        
-                        popup_html = f"""
-                        <div style='font-family: Arial; width: 400px; max-height: 500px; overflow-y: auto;'>
-                            <div style='background-color: #2c3e50; color: white; padding: 8px;'>
-                                <b>{record['location']}</b> | ID: {record['id']}
-                            </div>
-                            <div style='padding: 10px;'>
-                                <b>Determinant:</b> {record['criteria']}<br>
-                                <b>Energy Output:</b> {record['energy_method']}<br>
-                                <b>Direction:</b> {direction_icon} {record['direction']}<br>
-                                <b>Climate:</b> <span style='background-color:{marker_color};padding:2px 5px;color:white'>{record['climate']}</span><br>
-                                <b>Scale:</b> {record['scale']}<br>
-                                <hr>
-                                <div style='max-height:200px;overflow-y:auto;background:#f8f9fa;padding:8px;'>
-                                    {record['paragraph']}
-                                </div>
+            if show_clusters and group_data['count'] > 1:
+                for j, record in enumerate(group_data['records'][:30]):
+                    dx, dy = get_spiral_offset(j, group_data['count'], 0.03)
+                    offset_coords = [group_data['coords'][0] + dx, group_data['coords'][1] + dy]
+                    
+                    marker_color = get_climate_color(record['climate'])
+                    direction_icon = "📈" if record['direction'] == 'Increase' else "📉"
+                    
+                    popup_html = f"""
+                    <div style='font-family: Arial; width: 400px; max-height: 500px; overflow-y: auto;'>
+                        <div style='background-color: #2c3e50; color: white; padding: 8px;'>
+                            <b>{record['location']}</b> | ID: {record['id']}
+                        </div>
+                        <div style='padding: 10px;'>
+                            <b>Determinant:</b> {record['criteria']}<br>
+                            <b>Energy Output:</b> {record['energy_method']}<br>
+                            <b>Direction:</b> {direction_icon} {record['direction']}<br>
+                            <b>Climate:</b> <span style='background-color:{marker_color};padding:2px 5px;color:white'>{record['climate']}</span><br>
+                            <b>Scale:</b> {record['scale']}<br>
+                            <hr>
+                            <div style='max-height:200px;overflow-y:auto;background:#f8f9fa;padding:8px;'>
+                                {record['paragraph']}
                             </div>
                         </div>
-                        """
-                        
-                        folium.CircleMarker(
-                            location=offset_coords,
-                            radius=radius/1.5,
-                            popup=folium.Popup(Html(popup_html, script=True), max_width=400),
-                            color=marker_color,
-                            fill=True,
-                            fillColor=marker_color,
-                            fillOpacity=0.8,
-                        ).add_to(m)
-                else:
-                    for record in group_data['records']:
-                        marker_color = get_climate_color(record['climate'])
-                        direction_icon = "📈" if record['direction'] == 'Increase' else "📉"
-                        
-                        popup_html = f"""
-                        <div style='font-family: Arial; width: 450px; max-height: 600px; overflow-y: auto;'>
-                            <div style='background-color: #2c3e50; color: white; padding: 10px; border-radius: 5px 5px 0 0;'>
-                                <b>📍 {record['location']}</b> | ID: {record['id']}
-                            </div>
-                            <div style='padding: 15px; background-color: white;'>
-                                <table style='width: 100%; border-collapse: collapse;'>
-                                    <tr><td style='padding: 5px; font-weight: bold; width: 120px;'>Determinant:</td><td>{record['criteria']}</td></tr>
-                                    <tr><td style='padding: 5px; font-weight: bold;'>Energy Output:</td><td>{record['energy_method']}</td></tr>
-                                    <tr><td style='padding: 5px; font-weight: bold;'>Direction:</td><td>{direction_icon} {record['direction']}</td></tr>
-                                    <tr><td style='padding: 5px; font-weight: bold;'>Climate:</td><td><span style='background-color: {marker_color}; padding: 2px 8px; border-radius: 10px; color: white;'>{record['climate']}</span></td></tr>
-                                    <tr><td style='padding: 5px; font-weight: bold;'>Scale:</td><td>{record['scale']}</td></tr>
-                                </table>
-                                <hr>
-                                <div style='font-weight: bold; margin-bottom: 5px;'>Study Content:</div>
-                                <div style='max-height: 300px; overflow-y: auto; background-color: #f8f9fa; padding: 15px; border-radius: 5px; font-size: 13px; line-height: 1.6;'>
-                                    {record['paragraph']}
-                                </div>
+                    </div>
+                    """
+                    
+                    folium.CircleMarker(
+                        location=offset_coords,
+                        radius=radius/1.5,
+                        popup=folium.Popup(Html(popup_html, script=True), max_width=400),
+                        color=marker_color,
+                        fill=True,
+                        fillColor=marker_color,
+                        fillOpacity=0.8,
+                    ).add_to(m)
+            else:
+                for record in group_data['records']:
+                    marker_color = get_climate_color(record['climate'])
+                    direction_icon = "📈" if record['direction'] == 'Increase' else "📉"
+                    
+                    popup_html = f"""
+                    <div style='font-family: Arial; width: 450px; max-height: 600px; overflow-y: auto;'>
+                        <div style='background-color: #2c3e50; color: white; padding: 10px; border-radius: 5px 5px 0 0;'>
+                            <b>📍 {record['location']}</b> | ID: {record['id']}
+                        </div>
+                        <div style='padding: 15px; background-color: white;'>
+                            <table style='width: 100%; border-collapse: collapse;'>
+                                <tr><td style='padding: 5px; font-weight: bold; width: 120px;'>Determinant:</td><td>{record['criteria']}</td></tr>
+                                <tr><td style='padding: 5px; font-weight: bold;'>Energy Output:</td><td>{record['energy_method']}</td></tr>
+                                <tr><td style='padding: 5px; font-weight: bold;'>Direction:</td><td>{direction_icon} {record['direction']}</td></tr>
+                                <tr><td style='padding: 5px; font-weight: bold;'>Climate:</td><td><span style='background-color: {marker_color}; padding: 2px 8px; border-radius: 10px; color: white;'>{record['climate']}</span></td></tr>
+                                <tr><td style='padding: 5px; font-weight: bold;'>Scale:</td><td>{record['scale']}</td></tr>
+                            </table>
+                            <hr>
+                            <div style='font-weight: bold; margin-bottom: 5px;'>Study Content:</div>
+                            <div style='max-height: 300px; overflow-y: auto; background-color: #f8f9fa; padding: 15px; border-radius: 5px; font-size: 13px; line-height: 1.6;'>
+                                {record['paragraph']}
                             </div>
                         </div>
-                        """
-                        
-                        html = Html(popup_html, script=True)
-                        popup = folium.Popup(html, max_width=450)
-                        
-                        folium.CircleMarker(
-                            location=record['coords'],
-                            radius=radius,
-                            popup=popup,
-                            color=marker_color,
-                            fill=True,
-                            fillColor=marker_color,
-                            fillOpacity=0.8,
-                            tooltip=f"{record['criteria']} → {record['energy_method']}"
-                        ).add_to(m)
-            
-            # Display the map
-            folium_static(m, width=800, height=500)
+                    </div>
+                    """
+                    
+                    html = Html(popup_html, script=True)
+                    popup = folium.Popup(html, max_width=450)
+                    
+                    folium.CircleMarker(
+                        location=record['coords'],
+                        radius=radius,
+                        popup=popup,
+                        color=marker_color,
+                        fill=True,
+                        fillColor=marker_color,
+                        fillOpacity=0.8,
+                        tooltip=f"{record['criteria']} → {record['energy_method']}"
+                    ).add_to(m)
+        
+        # Store the map HTML in session state
+        st.session_state.map_html = m._repr_html_()
+        st.session_state.map_rendered = True
+        st.session_state.last_filter_hash = filter_hash
+
+    # Always display the map from session state
+    if 'map_html' in st.session_state:
+        folium_static(folium.Html(st.session_state.map_html, script=True), width=800, height=500)
+    else:
+        # Fallback for first run
+        m = folium.Map(location=[20, 0], zoom_start=2, tiles='CartoDB positron')
+        folium_static(m, width=800, height=500)
             
             # Update session state
             st.session_state.map_rendered = True
