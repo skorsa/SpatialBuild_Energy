@@ -28,27 +28,16 @@ def get_location_coordinates(location_name):
     
     # Direct lookup
     coords = cache.get(location_str)
-    if coords is not None:  # ✅ Check for None
-        # Add small random offset to prevent exact overlaps
+    if coords is not None:
         return [coords[0] + random.uniform(-0.05, 0.05), 
                 coords[1] + random.uniform(-0.05, 0.05)]
     
-    # Try case-insensitive match
+    # Try case-insensitive match (optional, but can be slow for large caches)
     for cached_loc, cached_coords in cache.items():
-        # ✅ Skip if cached_coords is None
         if cached_coords is None:
             continue
         if cached_loc.lower() == location_str.lower():
             return [cached_coords[0] + random.uniform(-0.05, 0.05), 
                     cached_coords[1] + random.uniform(-0.05, 0.05)]
-    
-    # Try partial match for things like "Eastern Europe (11 countries)"
-    for cached_loc, cached_coords in cache.items():
-        # ✅ Skip if cached_coords is None
-        if cached_coords is None:
-            continue
-        if location_str.lower() in cached_loc.lower() or cached_loc.lower() in location_str.lower():
-            return [cached_coords[0] + random.uniform(-0.1, 0.1), 
-                    cached_coords[1] + random.uniform(-0.1, 0.1)]
     
     return None
