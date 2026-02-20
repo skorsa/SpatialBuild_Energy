@@ -311,8 +311,8 @@ def render_location_map(db_connection):
         folium_static(m, width=800, height=500)
             
             # Update session state
-            st.session_state.map_rendered = True
-            st.session_state.last_filter_hash = filter_hash
+        st.session_state.map_rendered = True
+        st.session_state.last_filter_hash = filter_hash
     
 # After your map code, replace the statistics section with this:
 
