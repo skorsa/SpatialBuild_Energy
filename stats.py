@@ -1,5 +1,6 @@
 # stats.py
 import streamlit as st
+from sanitize_metadata_text import sanitize_metadata_text
 from color_schemes import (
     get_climate_color,
     get_scale_color,
@@ -7,10 +8,9 @@ from color_schemes import (
     get_approach_color,
     climate_descriptions
 )
-from sanitize_metadata_text import sanitize_metadata_text
 
 def render_statistics_tab(db_connection):
-    """Render the Statistics tab with all distributions"""
+    """Render the Statistics tab with all Frequencys"""
     st.subheader("Database Statistics")
     
     # Get all non-rejected records
@@ -57,7 +57,7 @@ def render_statistics_tab(db_connection):
     
    
     
-    # Create tabs for different distributions
+    # Create tabs for different Frequencies
     dist_tab1, dist_tab2, dist_tab3, dist_tab4, dist_tab5 = st.tabs([
         " Determinant",
         " Climate", 
@@ -82,18 +82,176 @@ def render_statistics_tab(db_connection):
     
     st.divider()
     
+def render_determinant_chart(unique_studies):
+    """Render top determinants chart with toggle and SVG export"""
+    st.subheader("Top 10 Studied Determinants")
     
+    # Initialize session state for showing all determinants
+    if 'show_all_determinants_stats' not in st.session_state:
+        st.session_state.show_all_determinants_stats = False
+    
+    determinant_counts = {}
+    for study in unique_studies:
+        criteria = study.get('criteria')
+        if criteria:
+            clean_criteria = sanitize_metadata_text(criteria)
+            determinant_counts[clean_criteria] = determinant_counts.get(clean_criteria, 0) + 1
+    
+    if determinant_counts:
+        # Determine which set to show
+        if st.session_state.show_all_determinants_stats:
+            display_determinants = sorted(determinant_counts.items(), key=lambda x: x[1], reverse=True)
+            button_label = " Show Top 10 Only"
+            chart_title = "All Determinants Frequency"
+            filename = "All_Determinants_Chart"
+        else:
+            display_determinants = sorted(determinant_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+            button_label = " Show All Determinants"
+            chart_title = "Top 10 Determinants"
+            filename = "Top_10_Determinants_Chart"
+        
+        max_count = max(count for _, count in determinant_counts.items())
+        
+        # Create horizontal bar chart
+        for criteria, count in display_determinants:
+            width_percent = (count / max_count) * 100
+            
+            col_name, col_bar = st.columns([2, 3])
+            
+            with col_name:
+                st.write(f"**{criteria}**")
+            
+            with col_bar:
+                bar_html = f'''
+                <div style="display: flex; align-items: center; margin: 8px 0; width: 100%; height: 32px;">
+                    <div style="
+                        width: {width_percent}%;
+                        background-color: #95a5a6;
+                        height: 24px;
+                        border-radius: 4px;
+                    "></div>
+                    <div style="margin-left: 10px; font-weight: 500; color: #333; min-width: 30px;">
+                        {count}
+                    </div>
+                </div>
+                '''
+                st.markdown(bar_html, unsafe_allow_html=True)
+        
+        # Toggle button
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col1:
+            if st.button(button_label, key="toggle_determinants_btn", use_container_width=True):
+                st.session_state.show_all_determinants_stats = not st.session_state.show_all_determinants_stats
+                st.rerun()
+        
+        # Show count info
+        if st.session_state.show_all_determinants_stats:
+            st.caption(f"Showing all {len(determinant_counts)} determinants")
+        else:
+            st.caption(f"Showing top 10 of {len(determinant_counts)} total determinants")
+        
+        # SVG export button below the chart
+        st.markdown("---")
+        col1, col2 = st.columns([1, 5])
+        
+        with col1:
+            if st.button("📥 Export as SVG", key=f"export_svg_determinants_{filename}"):
+                # Generate SVG
+                svg_height = len(display_determinants) * 48 + 80  # 48px per bar + header
+                svg_width = 900
+                
+                svg_content = [f'''<?xml version="1.0" encoding="UTF-8"?>
+<svg width="{svg_width}" height="{svg_height}" xmlns="http://www.w3.org/2000/svg">
+    <style>
+        .title {{ font-family: Arial; font-size: 16px; font-weight: bold; fill: #333; }}
+        .bar-label {{ font-family: Arial; font-size: 12px; fill: #555; }}
+        .count-label {{ font-family: Arial; font-size: 12px; font-weight: bold; fill: #333; }}
+        .caption {{ font-family: Arial; font-size: 11px; fill: #888; }}
+    </style>
+    
+    <!-- Chart Title -->
+    <text x="10" y="30" class="title">{chart_title}</text>
+''']
+                
+                y_position = 60
+                for criteria, count in display_determinants:
+                    # Truncate long text for SVG
+                    display_text = criteria
+                    if len(display_text) > 40:
+                        display_text = display_text[:37] + "..."
+                    
+                    width_percent = (count / max_count) * 100
+                    bar_width = (width_percent / 100) * 500  # Max bar width 500px
+                    
+                    # Add text label
+                    svg_content.append(f'    <text x="10" y="{y_position + 16}" class="bar-label">{display_text}</text>')
+                    
+                    # Add bar
+                    svg_content.append(f'    <rect x="250" y="{y_position + 5}" width="{bar_width}" height="24" fill="#95a5a6" rx="4" ry="4" />')
+                    
+                    # Add count
+                    svg_content.append(f'    <text x="770" y="{y_position + 24}" class="count-label">{count}</text>')
+                    
+                    y_position += 48
+                
+                # Add caption
+                total_studies = sum(count for _, count in determinant_counts.items())
+                caption_text = f"Total determinants: {len(determinant_counts)} | Total studies: {total_studies}"
+                if not st.session_state.show_all_determinants_stats:
+                    caption_text = f"Showing top 10 of {len(determinant_counts)} determinants | Total studies: {total_studies}"
+                
+                svg_content.append(f'    <text x="10" y="{y_position + 20}" class="caption">{caption_text}</text>')
+                svg_content.append('</svg>')
+                
+                svg_string = '\n'.join(svg_content)
+                
+                # SVG download
+                import base64
+                b64 = base64.b64encode(svg_string.encode()).decode()
+                svg_filename = f"{filename}.svg"
+                
+                # Create visible download link
+                st.markdown(f'''
+                <div style="padding: 10px; background-color: #f0f2f6; border-radius: 5px; margin: 10px 0;">
+                    <p style="margin-bottom: 10px; font-weight: bold;">✅ SVG Ready for Download:</p>
+                    <a href="data:image/svg+xml;base64,{b64}" download="{svg_filename}" 
+                       style="background-color: #4CAF50; color: white; padding: 8px 16px; 
+                              text-decoration: none; border-radius: 4px; display: inline-block;">
+                        📥 Click here to save {svg_filename}
+                    </a>
+                    <p style="margin-top: 8px; font-size: 12px; color: #666;">
+                        If download doesn't start automatically, click the button above.
+                    </p>
+                </div>
+                ''', unsafe_allow_html=True)
+                
+                # Auto-download via JavaScript
+                st.markdown(f'''
+                <script>
+                    setTimeout(function() {{
+                        const link = document.createElement('a');
+                        link.href = 'data:image/svg+xml;base64,{b64}';
+                        link.download = '{svg_filename}';
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    }}, 500);
+                </script>
+                ''', unsafe_allow_html=True)
+                
+                st.success(f"✅ {svg_filename} ready for download!")
+    else:
+        st.info("No determinant data available")
 
 def render_climate_distribution(unique_studies):
     """Render climate code distribution with clean bars"""
-    st.subheader("Climate Code Distribution")
+    st.subheader("Climate Code Frequency ")
     
     # Count climates by UNIQUE STUDY
     climate_counts = {}
     for study in unique_studies:
         climate = study.get('climate')
         if climate and climate not in ['Awaiting data', '']:
-            # Extract the climate code
             climate_code = climate
             if " - " in str(climate):
                 climate_code = climate.split(" - ")[0]
@@ -101,13 +259,19 @@ def render_climate_distribution(unique_studies):
             climate_counts[climate_code] = climate_counts.get(climate_code, 0) + 1
     
     if climate_counts:
-        render_clean_distribution_bars(climate_counts, climate_descriptions, get_climate_color, show_code=True)
+        render_clean_distribution_bars(
+            climate_counts, 
+            climate_descriptions, 
+            get_climate_color, 
+            show_code=True,
+            chart_name="Climate_Frequency_Chart"
+        )
     else:
         st.info("No climate data available")
 
 def render_scale_distribution(unique_studies):
-    """Render scale distribution with clean bars"""
-    st.subheader("Scale Distribution")
+    """Render scale Frequency with clean bars"""
+    st.subheader("Scale Frequency ")
     
     # Count scales by UNIQUE STUDY
     scale_counts = {}
@@ -120,13 +284,18 @@ def render_scale_distribution(unique_studies):
             scale_counts[scale_clean] = scale_counts.get(scale_clean, 0) + 1
     
     if scale_counts:
-        render_clean_distribution_bars(scale_counts, {}, get_scale_color)
+        render_clean_distribution_bars(
+            scale_counts, 
+            {}, 
+            get_scale_color,
+            chart_name="Scale_Frequency_Chart"
+        )
     else:
         st.info("No scale data available")
 
 def render_building_use_distribution(unique_studies):
-    """Render building use distribution with clean bars"""
-    st.subheader("Building Use Distribution")
+    """Render building use Frequency with clean bars"""
+    st.subheader("Building Use Frequency ")
     
     # Count building uses by UNIQUE STUDY
     building_counts = {}
@@ -136,13 +305,18 @@ def render_building_use_distribution(unique_studies):
             building_counts[building_use] = building_counts.get(building_use, 0) + 1
     
     if building_counts:
-        render_clean_distribution_bars(building_counts, {}, get_building_use_color)
+        render_clean_distribution_bars(
+            building_counts, 
+            {}, 
+            get_building_use_color,
+            chart_name="Building_Use_Frequency_Chart"
+        )
     else:
         st.info("No building use data available")
 
 def render_approach_distribution(unique_studies):
-    """Render approach distribution with clean bars"""
-    st.subheader("Approach Distribution")
+    """Render approach Frequency with clean bars"""
+    st.subheader("Approach Frequency ")
     
     # Count approaches by UNIQUE STUDY
     approach_counts = {}
@@ -152,18 +326,24 @@ def render_approach_distribution(unique_studies):
             approach_counts[approach] = approach_counts.get(approach, 0) + 1
     
     if approach_counts:
-        render_clean_distribution_bars(approach_counts, {}, get_approach_color)
+        render_clean_distribution_bars(
+            approach_counts, 
+            {}, 
+            get_approach_color,
+            chart_name="Approach_Frequency_Chart"
+        )
     else:
         st.info("No approach data available")
 
-def render_clean_distribution_bars(counts, descriptions, color_func, show_code=False):
-    """Generic function to render distribution bars with clean design"""
+def render_clean_distribution_bars(counts, descriptions, color_func, show_code=False, chart_name="Frequency"):
+    """Generic function to render Frequency bars with clean design and SVG export"""
     if not counts:
         return
     
     sorted_items = sorted(counts.items(), key=lambda x: x[1], reverse=True)
     max_count = max(count for _, count in sorted_items)
     
+    # Display the bars first
     for item, count in sorted_items:
         # Get description if available
         description = descriptions.get(item, '') if descriptions else ''
@@ -206,69 +386,100 @@ def render_clean_distribution_bars(counts, descriptions, color_func, show_code=F
             st.markdown(bar_html, unsafe_allow_html=True)
     
     st.caption(f"Total studies with data: {sum(counts.values())}")
+    
+    # SVG export button below the chart
+    st.markdown("---")
+    col1, col2 = st.columns([1, 5])
+    
+    with col1:
+        if st.button("📥 Export as SVG", key=f"export_svg_{chart_name}_{hash(str(sorted_items))}"):
+            # Generate SVG
+            svg_height = len(sorted_items) * 40 + 80  # 40px per bar + header
+            svg_width = 900
+            
+            # Clean chart name for filename
+            clean_filename = chart_name.lower().replace(' ', '_').replace('(', '').replace(')', '')
+            
+            svg_content = [f'''<?xml version="1.0" encoding="UTF-8"?>
+<svg width="{svg_width}" height="{svg_height}" xmlns="http://www.w3.org/2000/svg">
+    <style>
+        .title {{ font-family: Arial; font-size: 16px; font-weight: bold; fill: #333; }}
+        .bar-label {{ font-family: Arial; font-size: 12px; fill: #555; }}
+        .count-label {{ font-family: Arial; font-size: 12px; font-weight: bold; fill: #333; }}
+        .caption {{ font-family: Arial; font-size: 11px; fill: #888; }}
+    </style>
+    
+    <!-- Chart Title -->
+    <text x="10" y="30" class="title">{chart_name.replace('_', ' ').title()}</text>
+''']
+            
+            y_position = 60
+            for item, count in sorted_items:
+                description = descriptions.get(item, '') if descriptions else ''
+                
+                if description and show_code:
+                    left_text = f"{item} - {description}"
+                elif description:
+                    left_text = description
+                else:
+                    left_text = item
+                
+                # Truncate long text for SVG
+                if len(left_text) > 40:
+                    left_text = left_text[:37] + "..."
+                
+                color = color_func(item)
+                width_percent = (count / max_count) * 100
+                bar_width = (width_percent / 100) * 500  # Max bar width 500px
+                
+                # Add text label
+                svg_content.append(f'    <text x="10" y="{y_position + 16}" class="bar-label">{left_text}</text>')
+                
+                # Add bar
+                svg_content.append(f'    <rect x="250" y="{y_position + 5}" width="{bar_width}" height="24" fill="{color}" rx="4" ry="4" />')
+                
+                # Add count
+                svg_content.append(f'    <text x="770" y="{y_position + 24}" class="count-label">{count}</text>')
+                
+                y_position += 40
+            
+            # Add caption
+            svg_content.append(f'    <text x="10" y="{y_position + 20}" class="caption">Total studies with data: {sum(counts.values())}</text>')
+            svg_content.append('</svg>')
+            
+            svg_string = '\n'.join(svg_content)
+            
+            # SVG download
+            import base64
+            b64 = base64.b64encode(svg_string.encode()).decode()
+            filename = f"{clean_filename}.svg"
+            
+            # Create both a visible link and auto-download
+            st.markdown(f'''
+            <div style="padding: 10px; background-color: #f0f2f6; border-radius: 5px; margin: 10px 0;">
+                <p style="margin-bottom: 10px; font-weight: bold;">✅ SVG Ready for Download:</p>
+                <a href="data:image/svg+xml;base64,{b64}" download="{filename}" 
+                   style="background-color: #4CAF50; color: white; padding: 8px 16px; 
+                          text-decoration: none; border-radius: 4px; display: inline-block;">
+                    📥 Click here to save {filename}
+                </a>
+                <p style="margin-top: 8px; font-size: 12px; color: #666;">
+                    If download doesn't start automatically, click the button above.
+                </p>
+            </div>
+            ''', unsafe_allow_html=True)
+            
+            # Also trigger auto-download via JavaScript
+            st.markdown(f'''
+            <script>
+                setTimeout(function() {{
+                    const link = document.createElement('a');
+                    link.href = 'data:image/svg+xml;base64,{b64}';
+                    link.download = '{filename}';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                }}, 500);
+            </script>
+            ''', unsafe_allow_html=True)
 
-def render_determinant_chart(unique_studies):
-    """Render top determinants chart with toggle"""
-    st.subheader("Top 10 Studied Determinants (by unique study)")
-    
-    # Initialize session state for showing all determinants
-    if 'show_all_determinants_stats' not in st.session_state:
-        st.session_state.show_all_determinants_stats = False
-    
-    determinant_counts = {}
-    for study in unique_studies:
-        criteria = study.get('criteria')
-        if criteria:
-            clean_criteria = sanitize_metadata_text(criteria)
-            determinant_counts[clean_criteria] = determinant_counts.get(clean_criteria, 0) + 1
-    
-    if determinant_counts:
-        # Determine which set to show
-        if st.session_state.show_all_determinants_stats:
-            display_determinants = sorted(determinant_counts.items(), key=lambda x: x[1], reverse=True)
-            button_label = " Show Top 10 Only"
-        else:
-            display_determinants = sorted(determinant_counts.items(), key=lambda x: x[1], reverse=True)[:10]
-            button_label = " Show All Determinants"
-        
-        max_count = max(count for _, count in determinant_counts.items())
-        
-        # Create horizontal bar chart
-        for criteria, count in display_determinants:
-            width_percent = (count / max_count) * 100
-            
-            col_name, col_bar = st.columns([2, 3])
-            
-            with col_name:
-                st.write(f"**{criteria}**")
-            
-            with col_bar:
-                bar_html = f'''
-                <div style="display: flex; align-items: center; margin: 8px 0; width: 100%; height: 32px;">
-                    <div style="
-                        width: {width_percent}%;
-                        background-color: #95a5a6;
-                        height: 24px;
-                        border-radius: 4px;
-                    "></div>
-                    <div style="margin-left: 10px; font-weight: 500; color: #333; min-width: 30px;">
-                        {count}
-                    </div>
-                </div>
-                '''
-                st.markdown(bar_html, unsafe_allow_html=True)
-        
-        # Toggle button
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            if st.button(button_label, key="toggle_determinants_btn", use_container_width=True):
-                st.session_state.show_all_determinants_stats = not st.session_state.show_all_determinants_stats
-                st.rerun()
-        
-        # Show count info
-        if st.session_state.show_all_determinants_stats:
-            st.caption(f"Showing all {len(determinant_counts)} determinants")
-        else:
-            st.caption(f"Showing top 10 of {len(determinant_counts)} total determinants")
-    else:
-        st.info("No determinant data available")
