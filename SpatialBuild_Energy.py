@@ -23,7 +23,7 @@ load_dotenv()
 st.set_page_config(
     page_title="SpatialBuild Energy",
     page_icon="🏢",
-    layout="wide",
+    #layout="wide",
     initial_sidebar_state="expanded"
 )
 
@@ -1863,8 +1863,7 @@ def review_pending_data():
                     if st.button("❌ Cancel Edit", key=f"cancel_edit_{record_id}_{index}", use_container_width=True):
                         st.session_state[f"admin_pending_edit_{record_id}"] = False
                         st.rerun()
-            
-            
+
             if st.session_state.get(f"admin_pending_edit_{record_id}"):
                 edit_data = {
                     'criteria': criteria,
