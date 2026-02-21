@@ -1864,6 +1864,7 @@ def review_pending_data():
                         st.session_state[f"admin_pending_edit_{record_id}"] = False
                         st.rerun()
             
+            
             if st.session_state.get(f"admin_pending_edit_{record_id}"):
                 edit_data = {
                     'criteria': criteria,
