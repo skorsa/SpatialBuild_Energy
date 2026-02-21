@@ -196,7 +196,13 @@ def render_frequency_analysis(db_connection):
             with left_col:
                 # Update top dropdown (now active)
                 if increase_methods:
-                    increase_options = ["-- Choose energy output --"] + [f"{m} [{c}]" for m, c in sorted(increase_methods.items(), key=lambda x: x[1], reverse=True)]
+                    # Calculate total increase count
+                    total_increase = sum(increase_methods.values())
+                    increase_options = [
+                        "-- Choose energy output --",
+                        f"✨ ALL ENERGY OUTPUTS (INCREASE) [{total_increase}]"
+                    ] + [f"{m} [{c}]" for m, c in sorted(increase_methods.items(), key=lambda x: x[1], reverse=True)]
+                    
                     selected_top = top_dropdown.selectbox(
                         "↑ Energy output (increase)",
                         options=increase_options,
@@ -205,7 +211,13 @@ def render_frequency_analysis(db_connection):
                 
                 # Update bottom dropdown (now active)
                 if decrease_methods:
-                    decrease_options = ["-- Choose energy output --"] + [f"{m} [{c}]" for m, c in sorted(decrease_methods.items(), key=lambda x: x[1], reverse=True)]
+                    # Calculate total decrease count
+                    total_decrease = sum(decrease_methods.values())
+                    decrease_options = [
+                        "-- Choose energy output --",
+                        f"✨ ALL ENERGY OUTPUTS (DECREASE) [{total_decrease}]"
+                    ] + [f"{m} [{c}]" for m, c in sorted(decrease_methods.items(), key=lambda x: x[1], reverse=True)]
+                    
                     selected_bottom = bottom_dropdown.selectbox(
                         "↓ Energy output (decrease)",
                         options=decrease_options,
@@ -226,14 +238,12 @@ def render_frequency_analysis(db_connection):
         
         # Process top stack if selected
         if selected_determinant and selected_top and selected_top != "-- Choose energy output --":
-            selected_top_energy = selected_top.split(" [")[0]
-            
-            # Filter records for top stack
-            top_items = []
-            for record in det_records:
-                if record.get('direction') == 'Increase':
-                    method = record.get('energy_method', '').lower()
-                    if selected_top_energy.lower() in method:
+            # Check if "ALL ENERGY OUTPUTS (INCREASE)" is selected
+            if "ALL ENERGY OUTPUTS (INCREASE)" in selected_top:
+                # Include ALL increase records regardless of energy output
+                top_items = []
+                for record in det_records:
+                    if record.get('direction') == 'Increase':
                         if "Climate" in analysis_type:
                             item = record.get('climate')
                         elif "Scale" in analysis_type:
@@ -244,18 +254,44 @@ def render_frequency_analysis(db_connection):
                             item = record.get('approach')
                         
                         if item and item not in ['', None, 'Awaiting data']:
-                            # Store the original for display, but create a clean version for grouping
-                            display_item = item  # Keep original for showing in the box
+                            display_item = item
                             clean_item = item
                             if " - " in str(item):
                                 clean_item = item.split(" - ")[0]
-                            # Don't strip non-alphanumeric characters - keep the original for grouping too
-                            # Just use the cleaned version for counting/grouping
                             clean_item = clean_item.strip()
                             top_items.append({
                                 'display': display_item,
                                 'clean': clean_item
                             })
+            else:
+                # Filter for specific energy output
+                selected_top_energy = selected_top.split(" [")[0]
+                
+                # Filter records for top stack
+                top_items = []
+                for record in det_records:
+                    if record.get('direction') == 'Increase':
+                        method = record.get('energy_method', '').lower()
+                        if selected_top_energy.lower() in method:
+                            if "Climate" in analysis_type:
+                                item = record.get('climate')
+                            elif "Scale" in analysis_type:
+                                item = record.get('scale')
+                            elif "Building Use" in analysis_type:
+                                item = record.get('building_use')
+                            else:  # Approach
+                                item = record.get('approach')
+                            
+                            if item and item not in ['', None, 'Awaiting data']:
+                                display_item = item
+                                clean_item = item
+                                if " - " in str(item):
+                                    clean_item = item.split(" - ")[0]
+                                clean_item = clean_item.strip()
+                                top_items.append({
+                                    'display': display_item,
+                                    'clean': clean_item
+                                })
             
             if top_items:
                 # Count by clean version for grouping
@@ -267,7 +303,6 @@ def render_frequency_analysis(db_connection):
                 # Create sorted list with display names
                 top_sorted = []
                 for clean, count in sorted(top_counts.items(), key=lambda x: x[1], reverse=True):
-                    # Find a display name for this clean version
                     display = next((ti['display'] for ti in top_items if ti['clean'] == clean), clean)
                     top_sorted.append((display, count))
                 
@@ -275,14 +310,12 @@ def render_frequency_analysis(db_connection):
         
         # Process bottom stack if selected
         if selected_determinant and selected_bottom and selected_bottom != "-- Choose energy output --":
-            selected_bottom_energy = selected_bottom.split(" [")[0]
-            
-            bottom_items = []  # This will now store dictionaries
-            for record in det_records:
-                if record.get('direction') == 'Decrease':
-                    method = record.get('energy_method', '').lower()
-                    if selected_bottom_energy.lower() in method:
-                        # Get the correct field based on analysis type
+            # Check if "ALL ENERGY OUTPUTS (DECREASE)" is selected
+            if "ALL ENERGY OUTPUTS (DECREASE)" in selected_bottom:
+                # Include ALL decrease records regardless of energy output
+                bottom_items = []
+                for record in det_records:
+                    if record.get('direction') == 'Decrease':
                         if "Climate" in analysis_type:
                             item = record.get('climate')
                         elif "Scale" in analysis_type:
@@ -293,18 +326,43 @@ def render_frequency_analysis(db_connection):
                             item = record.get('approach')
                         
                         if item and item not in ['', None, 'Awaiting data']:
-                            # Store both display version and clean version
                             display_item = item
                             clean_item = item
                             if " - " in str(item):
                                 clean_item = item.split(" - ")[0]
                             clean_item = clean_item.strip()
-                            
-                            # Store as dictionary
                             bottom_items.append({
                                 'display': display_item,
                                 'clean': clean_item
                             })
+            else:
+                # Filter for specific energy output
+                selected_bottom_energy = selected_bottom.split(" [")[0]
+                
+                bottom_items = []
+                for record in det_records:
+                    if record.get('direction') == 'Decrease':
+                        method = record.get('energy_method', '').lower()
+                        if selected_bottom_energy.lower() in method:
+                            if "Climate" in analysis_type:
+                                item = record.get('climate')
+                            elif "Scale" in analysis_type:
+                                item = record.get('scale')
+                            elif "Building Use" in analysis_type:
+                                item = record.get('building_use')
+                            else:  # Approach
+                                item = record.get('approach')
+                            
+                            if item and item not in ['', None, 'Awaiting data']:
+                                display_item = item
+                                clean_item = item
+                                if " - " in str(item):
+                                    clean_item = item.split(" - ")[0]
+                                clean_item = clean_item.strip()
+                                bottom_items.append({
+                                    'display': display_item,
+                                    'clean': clean_item
+                                })
             
             if bottom_items:
                 # Count by clean version for grouping
@@ -469,8 +527,13 @@ def render_frequency_analysis(db_connection):
                     
                     # Top arrow section
                     if top_height > 0 and selected_top:
-                        energy_name = selected_top.split(" [")[0]
-                        increase_count = sum(1 for r in top_items)
+                        # Get the display name for the energy output
+                        if "ALL ENERGY OUTPUTS (INCREASE)" in selected_top:
+                            energy_name = "All Increase"
+                        else:
+                            energy_name = selected_top.split(" [")[0]
+                        
+                        increase_count = top_height
                         text_length = len(energy_name) + len(f"(Increase) {increase_count}")
                         text_height = text_length * 11
 
@@ -492,8 +555,13 @@ def render_frequency_analysis(db_connection):
 
                     # Bottom arrow section
                     if bottom_height > 0 and selected_bottom:
-                        energy_name = selected_bottom.split(" [")[0]
-                        decrease_count = sum(1 for r in bottom_items)
+                        # Get the display name for the energy output
+                        if "ALL ENERGY OUTPUTS (DECREASE)" in selected_bottom:
+                            energy_name = "All Decrease"
+                        else:
+                            energy_name = selected_bottom.split(" [")[0]
+                        
+                        decrease_count = bottom_height
                         text_length = len(energy_name) + len(f"(Decrease) {decrease_count}")
                         text_height = text_length * 11
                                             
@@ -513,18 +581,6 @@ def render_frequency_analysis(db_connection):
                     st.markdown('</div>', unsafe_allow_html=True)  # Close arrow column
 
                 st.markdown('</div>', unsafe_allow_html=True)  # Close chart row
-
-
-            # # Simple legend below chart
-            # if selected_determinant and selected_top and selected_bottom:
-            #     top_name = selected_top.split(" [")[0]
-            #     bottom_name = selected_bottom.split(" [")[0]
-            #     st.markdown(f"""
-            #     <div style="width: auto; margin: 10px auto;">
-            #         Climate frequency in studies of <b>{selected_determinant}</b> showing 
-            #         <b>{top_name}</b> Increase [{top_height}] and <b>{bottom_name}</b> Decrease [{bottom_height}]
-            #     </div>
-            #     """, unsafe_allow_html=True)
 
     # Add button to save this visual (in left column, below dropdowns)
     with left_col:
@@ -564,8 +620,14 @@ def render_frequency_analysis(db_connection):
                         
                         # Top arrow section
                         top_stack_height = top_height * 28
-                        energy_name_top = selected_top.split(" [")[0]
-                        increase_count = sum(1 for r in top_items)
+                        
+                        # Get the display name for the energy output
+                        if "ALL ENERGY OUTPUTS (INCREASE)" in selected_top:
+                            energy_name_top = "All Increase"
+                        else:
+                            energy_name_top = selected_top.split(" [")[0]
+                        
+                        increase_count = top_height
                         text_length_top = len(energy_name_top) + len(f"(Increase) {increase_count}")
                         text_height_top = text_length_top * 11
 
@@ -585,8 +647,14 @@ def render_frequency_analysis(db_connection):
                         
                         # Bottom arrow section
                         bottom_stack_height = bottom_height * 28
-                        energy_name_bottom = selected_bottom.split(" [")[0]
-                        decrease_count = sum(1 for r in bottom_items)
+                        
+                        # Get the display name for the energy output
+                        if "ALL ENERGY OUTPUTS (DECREASE)" in selected_bottom:
+                            energy_name_bottom = "All Decrease"
+                        else:
+                            energy_name_bottom = selected_bottom.split(" [")[0]
+                        
+                        decrease_count = bottom_height
                         text_length_bottom = len(energy_name_bottom) + len(f"(Decrease) {decrease_count}")
                         text_height_bottom = text_length_bottom * 11
                                             
@@ -605,11 +673,12 @@ def render_frequency_analysis(db_connection):
                         visual_html.append('</div>')  # Close flex row
                         
                         # Legend – positioned under bars column only (width = total minus 60px)
-                        top_name = selected_top.split(" [")[0]
-                        bottom_name = selected_bottom.split(" [")[0]
+                        top_name = "All Increase" if "ALL ENERGY OUTPUTS (INCREASE)" in selected_top else selected_top.split(" [")[0]
+                        bottom_name = "All Decrease" if "ALL ENERGY OUTPUTS (DECREASE)" in selected_bottom else selected_bottom.split(" [")[0]
+                        
                         visual_html.append(f'''
                         <div style="width: calc(100% - 60px); margin-top: 10px; font-size: 12pt; line-height: 1.4; color: #2c3e50; word-wrap: break-word;">
-                            Climate frequency in studies of <b>{selected_determinant}</b> showing 
+                            {analysis_type.strip()} frequency in studies of <b>{selected_determinant}</b> showing 
                             <b>{top_name}</b> <span style="color: #e74c3c;">Increase [{top_height}]</span> and 
                             <b>{bottom_name}</b> <span style="color: #3498db;">Decrease [{bottom_height}]</span>
                         </div>
@@ -621,8 +690,8 @@ def render_frequency_analysis(db_connection):
                             'html': ''.join(visual_html),
                             'type': analysis_type,
                             'determinant': selected_determinant,
-                            'top_energy': selected_top.split(" [")[0],
-                            'bottom_energy': selected_bottom.split(" [")[0]
+                            'top_energy': selected_top,
+                            'bottom_energy': selected_bottom
                         })
 
                         # Save to database
@@ -631,8 +700,8 @@ def render_frequency_analysis(db_connection):
                             user_id=user_id,
                             analysis_type=analysis_type,
                             determinant=selected_determinant,
-                            top_energy=selected_top.split(" [")[0],
-                            bottom_energy=selected_bottom.split(" [")[0],
+                            top_energy=selected_top,
+                            bottom_energy=selected_bottom,
                             html=''.join(visual_html)
                         )
                         
@@ -642,8 +711,8 @@ def render_frequency_analysis(db_connection):
                             'html': ''.join(visual_html),
                             'type': analysis_type,
                             'determinant': selected_determinant,
-                            'top_energy': selected_top.split(" [")[0],
-                            'bottom_energy': selected_bottom.split(" [")[0]
+                            'top_energy': selected_top,
+                            'bottom_energy': selected_bottom
                         }
                         
                         st.session_state.saved_visuals.append(new_item)
