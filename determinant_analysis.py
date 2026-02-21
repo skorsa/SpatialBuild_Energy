@@ -98,10 +98,15 @@ def render_frequency_analysis(db_connection):
     left_col, mid_col, right_col = st.columns([1, 1, 1])
     
     with left_col:
-        # Analysis type selector
+     # Analysis type selector
         analysis_type = st.selectbox(
             "Select moderator",
-            options=["🌍 Climate", "📏 Scale"],
+            options=[
+                "🌍 Climate",
+                "📏 Scale", 
+                "🏢 Building Use",
+                "🔬 Approach"
+            ],
             key="analysis_type_selector"
         )
         
@@ -194,7 +199,7 @@ def render_frequency_analysis(db_connection):
         def get_item_color(item):
             if "Climate" in analysis_type:
                 return get_climate_color(item)
-            else:  # Scale frequency
+            elif "Scale" in analysis_type:
                 scale_colors = {
                     'National': '#FF6B6B', 'Regional': '#4ECDC4', 'City': '#45B7D1',
                     'Urban': '#96CEB4', 'Neighborhood': '#FFE194', 'Building': '#E78F8F',
@@ -202,6 +207,44 @@ def render_frequency_analysis(db_connection):
                     'Municipal': '#4D96FF',
                 }
                 for key, color in scale_colors.items():
+                    if key.lower() in str(item).lower():
+                        return color
+                return '#9B9B9B'
+            elif "Building Use" in analysis_type:
+                # Building Use color mapping
+                building_colors = {
+                    'Residential': '#FFFF00',      # yellow
+                    'Commercial': "#FF0000",       # Red
+                    'Mixed use': '#FFA500',         # Orange
+                    'Office': '#6C5B7B',            # Purple
+                    'Retail': '#F08A5D',             # Orange
+                    'Industrial': '#EE82EE',         # violet
+                    'Educational': '#45B7D1',        # Sky blue
+                    'Healthcare': '#96CEB4',          # Sage
+                    'Public': '#A8E6CF',              # Mint
+                    'Religious': '#FFB347',            # Orange
+                    'Transport': '#4D96FF',            # Blue
+                    'Agricultural': '#6BCB77',         # Green
+                    'Unspecified / Other': '#9B9B9B',  # Gray
+                }
+                for key, color in building_colors.items():
+                    if key.lower() in str(item).lower():
+                        return color
+                return '#9B9B9B'  # Default gray
+            else:  # Approach
+                approach_colors = {
+                    'Top-down': '#FF6B6B',           # Coral
+                    'Bottom-up': '#4ECDC4',           # Teal
+                    'Hybrid': '#FFD93D',               # Yellow
+                    'Mixed-methods': '#45B7D1',         # Sky blue
+                    'Empirical': '#96CEB4',              # Sage
+                    'Theoretical': '#6C5B7B',             # Purple
+                    'Simulation': '#F08A5D',               # Orange
+                    'Survey': '#B83B5E',                    # Burgundy
+                    'Case study': '#4D96FF',                 # Blue
+                    'Review': '#A8E6CF',                      # Mint
+                }
+                for key, color in approach_colors.items():
                     if key.lower() in str(item).lower():
                         return color
                 return '#9B9B9B'
@@ -218,8 +261,12 @@ def render_frequency_analysis(db_connection):
                     if selected_top_energy.lower() in method:
                         if "Climate" in analysis_type:
                             item = record.get('climate')
-                        else:
+                        elif "Scale" in analysis_type:
                             item = record.get('scale')
+                        elif "Building Use" in analysis_type:
+                            item = record.get('building_use')
+                        else:  # Approach
+                            item = record.get('approach')
                         
                         if item and item not in ['', None, 'Awaiting data']:
                             item_clean = item
@@ -244,8 +291,12 @@ def render_frequency_analysis(db_connection):
                     if selected_bottom_energy.lower() in method:
                         if "Climate" in analysis_type:
                             item = record.get('climate')
-                        else:
+                        elif "Scale" in analysis_type:
                             item = record.get('scale')
+                        elif "Building Use" in analysis_type:
+                            item = record.get('building_use')
+                        else:  # Approach
+                            item = record.get('approach')
                         
                         if item and item not in ['', None, 'Awaiting data']:
                             item_clean = item
@@ -432,16 +483,16 @@ def render_frequency_analysis(db_connection):
 
             st.markdown('</div>', unsafe_allow_html=True)  # Close chart row
 
-            # Simple legend below chart
-            if selected_determinant and selected_top and selected_bottom:
-                top_name = selected_top.split(" [")[0]
-                bottom_name = selected_bottom.split(" [")[0]
-                st.markdown(f"""
-                <div style="width: auto; margin: 10px auto;">
-                    Climate frequency in studies of <b>{selected_determinant}</b> showing 
-                    <b>{top_name}</b> Increase [{top_height}] and <b>{bottom_name}</b> Decrease [{bottom_height}]
-                </div>
-                """, unsafe_allow_html=True)
+            # # Simple legend below chart
+            # if selected_determinant and selected_top and selected_bottom:
+            #     top_name = selected_top.split(" [")[0]
+            #     bottom_name = selected_bottom.split(" [")[0]
+            #     st.markdown(f"""
+            #     <div style="width: auto; margin: 10px auto;">
+            #         Climate frequency in studies of <b>{selected_determinant}</b> showing 
+            #         <b>{top_name}</b> Increase [{top_height}] and <b>{bottom_name}</b> Decrease [{bottom_height}]
+            #     </div>
+            #     """, unsafe_allow_html=True)
 
     # Add button to save this visual (in left column, below dropdowns)
     with left_col:
