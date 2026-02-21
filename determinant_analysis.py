@@ -4,8 +4,25 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 from collections import Counter
-from climate_colors import get_climate_color  # Fixed import!
+# At the top of your determinant_analysis.py, add these imports:
+from color_schemes import (
+    get_climate_color,
+    get_scale_color,
+    get_building_use_color,
+    get_approach_color
+)
 
+# Then replace your get_item_color function with this:
+def get_item_color(item):
+    """Get color for item based on analysis type"""
+    if "Climate" in analysis_type:
+        return get_climate_color(item)
+    elif "Scale" in analysis_type:
+        return get_scale_color(item)
+    elif "Building Use" in analysis_type:
+        return get_building_use_color(item)
+    else:  # Approach
+        return get_approach_color(item)
 if 'analyses_list' not in st.session_state:
     st.session_state.analyses_list = []
     
@@ -102,10 +119,10 @@ def render_frequency_analysis(db_connection):
         analysis_type = st.selectbox(
             "Select moderator",
             options=[
-                "🌍 Climate",
-                "📏 Scale", 
-                "🏢 Building Use",
-                "🔬 Approach"
+                " Climate",
+                " Scale", 
+                " Building Use",
+                " Approach"
             ],
             key="analysis_type_selector"
         )
@@ -197,57 +214,15 @@ def render_frequency_analysis(db_connection):
         
         # Define color function based on analysis type
         def get_item_color(item):
+            """Get color for item based on analysis type"""
             if "Climate" in analysis_type:
                 return get_climate_color(item)
             elif "Scale" in analysis_type:
-                scale_colors = {
-                    'National': '#FF6B6B', 'Regional': '#4ECDC4', 'City': '#45B7D1',
-                    'Urban': '#96CEB4', 'Neighborhood': '#FFE194', 'Building': '#E78F8F',
-                    'Global': '#B83B5E', 'Continental': '#6C5B7B', 'Local': '#F08A5D',
-                    'Municipal': '#4D96FF',
-                }
-                for key, color in scale_colors.items():
-                    if key.lower() in str(item).lower():
-                        return color
-                return '#9B9B9B'
+                return get_scale_color(item)
             elif "Building Use" in analysis_type:
-                # Building Use color mapping
-                building_colors = {
-                    'Residential': '#FFFF00',      # yellow
-                    'Commercial': "#FF0000",       # Red
-                    'Mixed use': '#FFA500',         # Orange
-                    'Office': '#6C5B7B',            # Purple
-                    'Retail': '#F08A5D',             # Orange
-                    'Industrial': '#EE82EE',         # violet
-                    'Educational': '#45B7D1',        # Sky blue
-                    'Healthcare': '#96CEB4',          # Sage
-                    'Public': '#A8E6CF',              # Mint
-                    'Religious': '#FFB347',            # Orange
-                    'Transport': '#4D96FF',            # Blue
-                    'Agricultural': '#6BCB77',         # Green
-                    'Unspecified / Other': '#9B9B9B',  # Gray
-                }
-                for key, color in building_colors.items():
-                    if key.lower() in str(item).lower():
-                        return color
-                return '#9B9B9B'  # Default gray
+                return get_building_use_color(item)
             else:  # Approach
-                approach_colors = {
-                    'Top-down': '#FF6B6B',           # Coral
-                    'Bottom-up': '#4ECDC4',           # Teal
-                    'Hybrid': '#FFD93D',               # Yellow
-                    'Mixed-methods': '#45B7D1',         # Sky blue
-                    'Empirical': '#96CEB4',              # Sage
-                    'Theoretical': '#6C5B7B',             # Purple
-                    'Simulation': '#F08A5D',               # Orange
-                    'Survey': '#B83B5E',                    # Burgundy
-                    'Case study': '#4D96FF',                 # Blue
-                    'Review': '#A8E6CF',                      # Mint
-                }
-                for key, color in approach_colors.items():
-                    if key.lower() in str(item).lower():
-                        return color
-                return '#9B9B9B'
+                return get_approach_color(item)
         
         # Process top stack if selected
         if selected_determinant and selected_top and selected_top != "-- Choose energy output --":
@@ -269,26 +244,45 @@ def render_frequency_analysis(db_connection):
                             item = record.get('approach')
                         
                         if item and item not in ['', None, 'Awaiting data']:
-                            item_clean = item
+                            # Store the original for display, but create a clean version for grouping
+                            display_item = item  # Keep original for showing in the box
+                            clean_item = item
                             if " - " in str(item):
-                                item_clean = item.split(" - ")[0]
-                            item_clean = ''.join([c for c in str(item_clean) if c.isalnum()])
-                            top_items.append(item_clean)
+                                clean_item = item.split(" - ")[0]
+                            # Don't strip non-alphanumeric characters - keep the original for grouping too
+                            # Just use the cleaned version for counting/grouping
+                            clean_item = clean_item.strip()
+                            top_items.append({
+                                'display': display_item,
+                                'clean': clean_item
+                            })
             
             if top_items:
-                top_counts = Counter(top_items)
-                top_sorted = sorted(top_counts.items(), key=lambda x: x[1], reverse=True)
+                # Count by clean version for grouping
+                top_counts = {}
+                for ti in top_items:
+                    clean = ti['clean']
+                    top_counts[clean] = top_counts.get(clean, 0) + 1
+                
+                # Create sorted list with display names
+                top_sorted = []
+                for clean, count in sorted(top_counts.items(), key=lambda x: x[1], reverse=True):
+                    # Find a display name for this clean version
+                    display = next((ti['display'] for ti in top_items if ti['clean'] == clean), clean)
+                    top_sorted.append((display, count))
+                
                 top_height = sum(top_counts.values())
         
         # Process bottom stack if selected
         if selected_determinant and selected_bottom and selected_bottom != "-- Choose energy output --":
             selected_bottom_energy = selected_bottom.split(" [")[0]
             
-            bottom_items = []
+            bottom_items = []  # This will now store dictionaries
             for record in det_records:
                 if record.get('direction') == 'Decrease':
                     method = record.get('energy_method', '').lower()
                     if selected_bottom_energy.lower() in method:
+                        # Get the correct field based on analysis type
                         if "Climate" in analysis_type:
                             item = record.get('climate')
                         elif "Scale" in analysis_type:
@@ -299,15 +293,32 @@ def render_frequency_analysis(db_connection):
                             item = record.get('approach')
                         
                         if item and item not in ['', None, 'Awaiting data']:
-                            item_clean = item
+                            # Store both display version and clean version
+                            display_item = item
+                            clean_item = item
                             if " - " in str(item):
-                                item_clean = item.split(" - ")[0]
-                            item_clean = ''.join([c for c in str(item_clean) if c.isalnum()])
-                            bottom_items.append(item_clean)
+                                clean_item = item.split(" - ")[0]
+                            clean_item = clean_item.strip()
+                            
+                            # Store as dictionary
+                            bottom_items.append({
+                                'display': display_item,
+                                'clean': clean_item
+                            })
             
             if bottom_items:
-                bottom_counts = Counter(bottom_items)
-                bottom_sorted = sorted(bottom_counts.items(), key=lambda x: x[1], reverse=True)
+                # Count by clean version for grouping
+                bottom_counts = {}
+                for bi in bottom_items:
+                    clean = bi['clean']
+                    bottom_counts[clean] = bottom_counts.get(clean, 0) + 1
+                
+                # Create sorted list with display names
+                bottom_sorted = []
+                for clean, count in sorted(bottom_counts.items(), key=lambda x: x[1], reverse=True):
+                    display = next((bi['display'] for bi in bottom_items if bi['clean'] == clean), clean)
+                    bottom_sorted.append((display, count))
+                
                 bottom_height = sum(bottom_counts.values())
         
         # CSS styles for consistent chart width
@@ -398,90 +409,111 @@ def render_frequency_analysis(db_connection):
         if selected_determinant:
             # Create a container for the chart with two columns
             chart_col1, chart_col2 = st.columns([6, 0.5])
-    
+            
             with chart_col1:
                 # Bars column on the left
                 st.markdown('<div class="bars-column">', unsafe_allow_html=True)
                 
                 # TOP SECTION - Increase results
                 if top_items and selected_top:
-                    for item, count in top_sorted:
+                    # Count and sort as before
+                    top_counts = {}
+                    for ti in top_items:
+                        clean = ti['clean']
+                        top_counts[clean] = top_counts.get(clean, 0) + 1
+                    
+                    top_sorted = []
+                    for clean, count in sorted(top_counts.items(), key=lambda x: x[1], reverse=True):
+                        display = next((ti['display'] for ti in top_items if ti['clean'] == clean), clean)
+                        top_sorted.append((display, count))
+                    
+                    for display_name, count in top_sorted:
                         for i in range(count):
-                            color = get_item_color(item)
-                            st.markdown(f'<div class="frequency-box" style="background-color: {color};">{item}</div>', unsafe_allow_html=True)
+                            color = get_item_color(display_name)
+                            st.markdown(f'<div class="frequency-box" style="background-color: {color};">{display_name}</div>', unsafe_allow_html=True)
                 else:
                     # Placeholder to maintain spacing
                     st.markdown('<div class="frequency-box" style="opacity:0;"></div>', unsafe_allow_html=True)
-                
                 # Middle display box (Determinant)
                 st.markdown(f'<div class="display-box">{selected_determinant}</div>', unsafe_allow_html=True)
 
                 # BOTTOM SECTION - Decrease results
                 if bottom_items and selected_bottom:
-                    for item, count in bottom_sorted:
+                    # Count and sort as before
+                    bottom_counts = {}
+                    for bi in bottom_items:
+                        clean = bi['clean']
+                        bottom_counts[clean] = bottom_counts.get(clean, 0) + 1
+                    
+                    bottom_sorted = []
+                    for clean, count in sorted(bottom_counts.items(), key=lambda x: x[1], reverse=True):
+                        display = next((bi['display'] for bi in bottom_items if bi['clean'] == clean), clean)
+                        bottom_sorted.append((display, count))
+                    
+                    for display_name, count in bottom_sorted:
                         for i in range(count):
-                            color = get_item_color(item)
-                            # Remove the if/else condition - show label on EVERY box
-                            st.markdown(f'<div class="frequency-box" style="background-color: {color};">{item}</div>', unsafe_allow_html=True)
+                            color = get_item_color(display_name)
+                            st.markdown(f'<div class="frequency-box" style="background-color: {color};">{display_name}</div>', unsafe_allow_html=True)
                 else:
                     # Placeholder to maintain spacing
                     st.markdown('<div class="frequency-box" style="opacity:0;"></div>', unsafe_allow_html=True)
-            
-            with chart_col2:
-                # Arrow column on the right
-                st.markdown('<div style="display: flex; flex-direction: column; height: 100%; position: relative;">', unsafe_allow_html=True)
-                
-                # Calculate total stack heights
-                top_stack_height = top_height * 28 if top_height > 0 else 28
-                bottom_stack_height = bottom_height * 28 if bottom_height > 0 else 28
-                determinant_height = 36
-                
-                # Top arrow section
-                if top_height > 0 and selected_top:
-                    energy_name = selected_top.split(" [")[0]
-                    increase_count = sum(1 for r in top_items)
-                    text_length = len(energy_name) + len(f"(Increase) {increase_count}")
-                    text_height = text_length * 11
 
-                    st.markdown(f'''
-                    <div style="position: relative; height: {top_stack_height}px; margin-bottom: 0; width: 60px;">
-                        <div style="position: absolute; left: 10px; top: {top_stack_height}px; width: 3px; height: {top_stack_height}px; background-color: #e74c3c; transform: translateY(-100%);"></div>
-                        <div style="position: absolute; left: 4px; top: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid #e74c3c;"></div>
-                        <div style="position: absolute; left: 20px; bottom: 0; height: {max(top_stack_height, text_height)}px; display: flex; flex-direction: column; justify-content: flex-start; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); color: #e74c3c; white-space: nowrap;">
-                            <div style="margin: 0;">{energy_name}</div>
-                            <div style="margin-bottom: auto; opacity: 0.9;">Increase [{increase_count}]</div>
+                with chart_col2:
+                    # Arrow column on the right
+                    st.markdown('<div style="display: flex; flex-direction: column; height: 100%; position: relative;">', unsafe_allow_html=True)
+                    
+                    # Calculate total stack heights
+                    top_stack_height = top_height * 28 if top_height > 0 else 28
+                    bottom_stack_height = bottom_height * 28 if bottom_height > 0 else 28
+                    determinant_height = 36
+                    
+                    # Top arrow section
+                    if top_height > 0 and selected_top:
+                        energy_name = selected_top.split(" [")[0]
+                        increase_count = sum(1 for r in top_items)
+                        text_length = len(energy_name) + len(f"(Increase) {increase_count}")
+                        text_height = text_length * 11
+
+                        st.markdown(f'''
+                        <div style="position: relative; height: {top_stack_height}px; margin-bottom: 0; width: 60px;">
+                            <div style="position: absolute; left: 10px; top: {top_stack_height}px; width: 3px; height: {top_stack_height}px; background-color: #e74c3c; transform: translateY(-100%);"></div>
+                            <div style="position: absolute; left: 4px; top: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid #e74c3c;"></div>
+                            <div style="position: absolute; left: 20px; bottom: 0; height: {max(top_stack_height, text_height)}px; display: flex; flex-direction: column; justify-content: flex-start; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); color: #e74c3c; white-space: nowrap;">
+                                <div style="margin: 0;">{energy_name}</div>
+                                <div style="margin-bottom: auto; opacity: 0.9;">Increase [{increase_count}]</div>
+                            </div>
                         </div>
-                    </div>
-                    ''', unsafe_allow_html=True)
-                else:
-                    st.markdown(f'<div style="height: 28px;"></div>', unsafe_allow_html=True)
+                        ''', unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'<div style="height: 28px;"></div>', unsafe_allow_html=True)
 
-                # Determinant spacer
-                st.markdown(f'<div style="height: {determinant_height}px; width: 60px;"></div>', unsafe_allow_html=True)
+                    # Determinant spacer
+                    st.markdown(f'<div style="height: {determinant_height}px; width: 60px;"></div>', unsafe_allow_html=True)
 
-                # Bottom arrow section
-                if bottom_height > 0 and selected_bottom:
-                    energy_name = selected_bottom.split(" [")[0]
-                    decrease_count = sum(1 for r in bottom_items)
-                    text_length = len(energy_name) + len(f"(Decrease) {decrease_count}")
-                    text_height = text_length * 11
-                                        
-                    st.markdown(f'''
-                    <div style="position: relative; height: {bottom_stack_height}px; margin-top: 0; width: 60px;">
-                        <div style="position: absolute; left: 10px; top: 0; width: 3px; height: {bottom_stack_height}px; background-color: #3498db;"></div>
-                        <div style="position: absolute; left: 4px; bottom: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-top: 14px solid #3498db;"></div>
-                        <div style="position: absolute; left: 20px; top: 0; height: {max(bottom_stack_height, text_height)}px; display: flex; flex-direction: column; justify-content: flex-start; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); color: #3498db; white-space: nowrap;">
-                            <div style="margin-top: auto;">{energy_name}</div>
-                            <div style="margin-top: auto; opacity: 0.9;">Decrease [{decrease_count}]</div>
+                    # Bottom arrow section
+                    if bottom_height > 0 and selected_bottom:
+                        energy_name = selected_bottom.split(" [")[0]
+                        decrease_count = sum(1 for r in bottom_items)
+                        text_length = len(energy_name) + len(f"(Decrease) {decrease_count}")
+                        text_height = text_length * 11
+                                            
+                        st.markdown(f'''
+                        <div style="position: relative; height: {bottom_stack_height}px; margin-top: 0; width: 60px;">
+                            <div style="position: absolute; left: 10px; top: 0; width: 3px; height: {bottom_stack_height}px; background-color: #3498db;"></div>
+                            <div style="position: absolute; left: 4px; bottom: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-top: 14px solid #3498db;"></div>
+                            <div style="position: absolute; left: 20px; top: 0; height: {max(bottom_stack_height, text_height)}px; display: flex; flex-direction: column; justify-content: flex-start; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); color: #3498db; white-space: nowrap;">
+                                <div style="margin-top: auto;">{energy_name}</div>
+                                <div style="margin-top: auto; opacity: 0.9;">Decrease [{decrease_count}]</div>
+                            </div>
                         </div>
-                    </div>
-                    ''', unsafe_allow_html=True)
-                else:
-                    st.markdown(f'<div style="height: 28px;"></div>', unsafe_allow_html=True)
+                        ''', unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'<div style="height: 28px;"></div>', unsafe_allow_html=True)
 
-                st.markdown('</div>', unsafe_allow_html=True)  # Close arrow column
+                    st.markdown('</div>', unsafe_allow_html=True)  # Close arrow column
 
-            st.markdown('</div>', unsafe_allow_html=True)  # Close chart row
+                st.markdown('</div>', unsafe_allow_html=True)  # Close chart row
+
 
             # # Simple legend below chart
             # if selected_determinant and selected_top and selected_bottom:
