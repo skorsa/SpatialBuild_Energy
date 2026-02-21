@@ -22,6 +22,7 @@ from color_schemes import (
     get_approach_color,
     climate_descriptions
 )
+
 from color_utils import get_color_for_field, format_climate_display
 from determinant_analysis import render_frequency_analysis
 from stats import render_statistics_tab
