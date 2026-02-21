@@ -14,16 +14,24 @@ from contextlib import contextmanager
 from typing import List, Dict, Tuple
 from db_wrapper import DatabaseWrapper
 from location_map import render_location_map
+from sanitize_metadata_text import sanitize_metadata_text
+from color_schemes import (
+    get_climate_color,
+    get_scale_color,
+    get_building_use_color,
+    get_approach_color,
+    climate_descriptions
+)
+from color_utils import get_color_for_field, format_climate_display
 from determinant_analysis import render_frequency_analysis
 from stats import render_statistics_tab
-from sanitize_metadata_text import sanitize_metadata_text
 
 load_dotenv()
 
 st.set_page_config(
     page_title="SpatialBuild Energy",
     page_icon="🏢",
-    #layout="wide",
+    layout="wide",
     initial_sidebar_state="expanded"
 )
 
@@ -1967,7 +1975,7 @@ def logout():
 
 def render_climate_distribution(unique_studies):
     """Render climate code distribution with clean bars"""
-    st.subheader("Climate Code Distribution (by unique study)")
+    st.subheader("Climate Code Distribution)")
     
     from color_schemes import climate_descriptions, get_climate_color
     
@@ -2046,13 +2054,64 @@ def render_approach_distribution(unique_studies):
     else:
         st.info("No approach data available")
 
-def render_clean_distribution_bars(counts, descriptions, color_func, value_key='value', show_code=True):
-    """Generic function to render distribution bars with clean design"""
+def render_clean_distribution_bars(counts, descriptions, color_func, show_code=False):
+    """Generic function to render distribution bars with clean design and SVG export"""
     if not counts:
         return
     
     sorted_items = sorted(counts.items(), key=lambda x: x[1], reverse=True)
     max_count = max(count for _, count in sorted_items)
+    
+    # Add SVG Export Button at top
+    col_export, _ = st.columns([1, 5])
+    with col_export:
+        if st.button("📊 Export as SVG", key=f"export_{hash(str(sorted_items))}"):
+            # Generate SVG
+            svg_height = len(sorted_items) * 40 + 60  # 40px per bar + header
+            svg_width = 800
+            
+            svg_content = [f'''<?xml version="1.0" encoding="UTF-8"?>
+<svg width="{svg_width}" height="{svg_height}" xmlns="http://www.w3.org/2000/svg">
+    <style>
+        .bar-label {{ font-family: Arial; font-size: 12px; fill: #555; }}
+        .count-label {{ font-family: Arial; font-size: 12px; font-weight: bold; fill: #333; }}
+    </style>
+''']
+            
+            y_position = 30
+            for item, count in sorted_items:
+                description = descriptions.get(item, '') if descriptions else ''
+                
+                if description and show_code:
+                    left_text = f"{item} - {description}"
+                elif description:
+                    left_text = description
+                else:
+                    left_text = item
+                
+                color = color_func(item)
+                width_percent = (count / max_count) * 100
+                bar_width = (width_percent / 100) * 500  # Max bar width 500px
+                
+                # Add text label
+                svg_content.append(f'    <text x="10" y="{y_position + 16}" class="bar-label">{left_text}</text>')
+                
+                # Add bar
+                svg_content.append(f'    <rect x="220" y="{y_position + 5}" width="{bar_width}" height="24" fill="{color}" rx="4" ry="4" />')
+                
+                # Add count
+                svg_content.append(f'    <text x="730" y="{y_position + 24}" class="count-label">{count}</text>')
+                
+                y_position += 40
+            
+            svg_content.append('</svg>')
+            
+            # Create download button
+            import base64
+            svg_string = '\n'.join(svg_content)
+            b64 = base64.b64encode(svg_string.encode()).decode()
+            href = f'<a href="data:image/svg+xml;base64,{b64}" download="chart.svg">📥 Click to save SVG</a>'
+            st.markdown(href, unsafe_allow_html=True)
     
     for item, count in sorted_items:
         # Get description if available

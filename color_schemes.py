@@ -37,22 +37,18 @@ def get_climate_color(climate_code):
 def get_scale_color(scale):
     """Get color for scale (blue gradient from dark to light)"""
     scale_colors = {
-        'Global': '#003f5c',
-        'Continental': '#1a5276',
-        'National': '#2e6b8f',
-        'Regional': '#4285a8',
-        'State': '#569ec1',
-        'Provincial': '#6ab8da',
-        'Municipal': '#7ed1f3',
-        'City': '#92e5ff',
-        'Urban': '#a8e9ff',
-        'Neighborhood': '#beedff',
-        'Building': '#d4f1ff',
-        'Local': '#eaf5ff',
-        'District': "#c6cfd7",
-        'Block': "#bed4e3",
+        'Multi-National': "#105e8d",      # Darkest blue (first color)
+        'National': '#2470a0',             # Step 2
+        'Regional': '#3882b3',              # Step 3
+        'State(s) / Province(s)': '#4c94c6', # Step 4
+        'County / Municipal Region(s)': '#60a6d9', # Step 5
+        'Multi-Cities': '#74b8ec',          # Step 6
+        'Urban': '#88caff',                  # Step 7
+        'District(s)': "#9cd4ff",           # Step 8
+        'Neighborhood(s)': '#b0deff',        # Step 9
+        'Block(s)': "#d2eefb"                # Lightest blue (last color)
     }
-    
+        
     scale_lower = str(scale).lower()
     for key, color in scale_colors.items():
         if key.lower() in scale_lower:
@@ -62,9 +58,9 @@ def get_scale_color(scale):
 def get_building_use_color(building_use):
     """Get color for building use"""
     building_colors = {
-        'Residential': '#4ECDC4',
-        'Commercial': '#FF6B6B',
-        'Mixed use': '#FFD93D',
+        'Residential': "#FFFF00",
+        'Commercial': "#FF0000",
+        'Mixed use': "#B958FF",
         'Office': '#6C5B7B',
         'Retail': '#F08A5D',
         'Industrial': '#B83B5E',
@@ -88,8 +84,8 @@ def get_approach_color(approach):
     """Get color for research approach"""
     approach_colors = {
         'Hybrid': "#2481A1",
-        'Top-down': "#110DE7",
-        'Bottom-up': "#27A2F4",
+        'Top-down': "#1E57F2",
+        'Bottom-up': "#46C9F9",
         'Mixed-methods': '#45B7D1',
         'Empirical': '#96CEB4',
         'Theoretical': '#6C5B7B',
