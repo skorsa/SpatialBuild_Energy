@@ -1045,7 +1045,7 @@ def admin_dashboard():
     st.subheader("Admin Dashboard")
     
     # Tab interface for different admin functions
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Edit Records", "Review Pending", "Data Import", "Missing Data", "Location Cleanup"])
+    tab1, tab2, tab3, tab4, = st.tabs(["Edit Records", "Review Pending", "Data Import", "Missing Data",])
     
     with tab1:
         manage_scale_climate_data()
@@ -1059,9 +1059,9 @@ def admin_dashboard():
     with tab4:
         review_missing_data()
 
-    with tab5:
-        st.subheader("🧹 Location Data Cleanup")
-        st.warning("This will modify location data in the database. Make sure you have a backup!")
+    # with tab5:
+    #     st.subheader("🧹 Location Data Cleanup")
+    #     st.warning("This will modify location data in the database. Make sure you have a backup!")
     
         if st.button("Preview Location Cleanup"):
             from location_cleanup import cleanup_locations
