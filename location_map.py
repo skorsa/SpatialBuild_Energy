@@ -166,10 +166,6 @@ def render_location_map(db_connection):
     st.subheader("🗺️ Study Locations Map")
     st.caption("Interactive map showing where studies are located. Click on markers for complete study details. Marker colors represent climate zones.")
     
-    # Add a unique key to session state to track if map was already rendered
-    if 'map_rendered' not in st.session_state:
-        st.session_state.map_rendered = False
-    
     # Add filter options (simplified - no status filter)
     with st.expander("🔍 Filter Options", expanded=False):
         col1, col2 = st.columns(2)
@@ -195,13 +191,15 @@ def render_location_map(db_connection):
         
         # Process records
         location_records, location_groups = prepare_location_data(valid_records)
+        
+        # Debug info
+        st.sidebar.write(f"📍 Records with coordinates: {len(location_records)}")
+        st.sidebar.write(f"🗺️ Location groups: {len(location_groups)}")
     
     if not location_records:
         st.info("📭 No location data available for mapping.")
         return
     
-    # In render_location_map, replace the map rendering section with this:
-
     # Create a hash of filter settings to detect changes
     filter_hash = hash(f"{show_clusters}_{marker_size}_{max_markers}")
 
@@ -210,9 +208,15 @@ def render_location_map(db_connection):
 
     # Check if filters changed OR if this is the first run
     filters_changed = st.session_state.last_filter_hash != filter_hash
+    
+    # Debug
+    st.sidebar.write(f"🔄 Filters changed: {filters_changed}")
+    st.sidebar.write(f"🗺️ Map in session: {'map' in st.session_state}")
 
-    # Always render the map, but only recreate when filters change
-    if filters_changed or 'map_rendered' not in st.session_state:
+    # Recreate map if filters changed or first run
+    if filters_changed or 'map' not in st.session_state:
+        st.sidebar.write("🆕 Creating new map...")
+        
         # Create new map
         m = folium.Map(location=[20, 0], zoom_start=2, tiles='CartoDB positron')
         
@@ -297,24 +301,19 @@ def render_location_map(db_connection):
                         tooltip=f"{record['criteria']} → {record['energy_method']}"
                     ).add_to(m)
         
-        # Store the map HTML in session state
-        st.session_state.map_html = m._repr_html_()
-        st.session_state.map_rendered = True
+        # Store the map in session state
+        st.session_state.map = m
         st.session_state.last_filter_hash = filter_hash
+        
+        st.sidebar.write("✅ Map created and stored")
 
-    # Always display the map from session state
-    if 'map_html' in st.session_state:
-        folium_static(folium.Html(st.session_state.map_html, script=True), width=800, height=500)
+    # Display the map from session state
+    if 'map' in st.session_state:
+        st.sidebar.write("🗺️ Displaying map from session")
+        folium_static(st.session_state.map, width=800, height=500)
     else:
-        # Fallback for first run
-        m = folium.Map(location=[20, 0], zoom_start=2, tiles='CartoDB positron')
-        folium_static(m, width=800, height=500)
-            
-            # Update session state
-        st.session_state.map_rendered = True
-        st.session_state.last_filter_hash = filter_hash
-    
-# After your map code, replace the statistics section with this:
+        st.info("Loading map...")
+        st.sidebar.write("❌ No map in session state")
 
     # Statistics
     st.divider()
@@ -324,6 +323,7 @@ def render_location_map(db_connection):
     if location_groups:
         most = max(location_groups.items(), key=lambda x: x[1]['count'])
         col3.metric("🏆 Most Records", f"{most[1]['location']} ({most[1]['count']})")
+
 
     # Count records with no specific location - USING CACHE AS SOURCE OF TRUTH
     from location_lookup import load_location_cache

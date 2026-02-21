@@ -370,15 +370,11 @@ def render_frequency_analysis(db_connection):
                     for item, count in bottom_sorted:
                         for i in range(count):
                             color = get_item_color(item)
-                            if i == 0:
-                                st.markdown(f'<div class="frequency-box" style="background-color: {color};">{item}</div>', unsafe_allow_html=True)
-                            else:
-                                st.markdown(f'<div class="frequency-box" style="background-color: {color};"></div>', unsafe_allow_html=True)
+                            # Remove the if/else condition - show label on EVERY box
+                            st.markdown(f'<div class="frequency-box" style="background-color: {color};">{item}</div>', unsafe_allow_html=True)
                 else:
                     # Placeholder to maintain spacing
                     st.markdown('<div class="frequency-box" style="opacity:0;"></div>', unsafe_allow_html=True)
-                
-                st.markdown('</div>', unsafe_allow_html=True)  # Close bars-column
             
             with chart_col2:
                 # Arrow column on the right
