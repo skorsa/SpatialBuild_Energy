@@ -163,7 +163,7 @@ def prepare_location_data(records):
 
 def render_location_map(db_connection):
     """Render a map showing study locations"""
-    st.subheader("🗺️ Study Locations Map")
+    st.subheader(" Study Locations Map")
     st.caption("Interactive map showing where studies are located. Click on markers for complete study details. Marker colors represent climate zones.")
     
     # Add filter options (simplified - no status filter)
@@ -316,13 +316,13 @@ def render_location_map(db_connection):
         st.sidebar.write("❌ No map in session state")
 
     # Statistics
-    st.divider()
-    col1, col2, col3 = st.columns(3)
-    col1.metric("📍 Geographic Locations", len(location_groups))
-    col2.metric("📚 Records on Map", len(location_records))
-    if location_groups:
-        most = max(location_groups.items(), key=lambda x: x[1]['count'])
-        col3.metric("🏆 Most Records", f"{most[1]['location']} ({most[1]['count']})")
+    # st.divider()
+    # col1, col2, col3 = st.columns(3)
+    # col1.metric("📍 Geographic Locations", len(location_groups))
+    # col2.metric("📚 Records on Map", len(location_records))
+    # if location_groups:
+    #     most = max(location_groups.items(), key=lambda x: x[1]['count'])
+    #     col3.metric("🏆 Most Records", f"{most[1]['location']} ({most[1]['count']})")
 
 
     # Count records with no specific location - USING CACHE AS SOURCE OF TRUTH
