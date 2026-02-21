@@ -9,6 +9,9 @@ from folium import IFrame, Html
 import math
 from location_lookup import get_location_coordinates  # Fixed import!
 import pandas as pd
+from color_schemes import (
+    get_climate_color
+)
 
 # Function to convert URLs to clickable links
 def convert_urls_to_links(text):
@@ -30,28 +33,6 @@ def convert_urls_to_links(text):
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
     
     return text
-
-# Function to get climate color
-def get_climate_color(climate_code):
-    """Get color for climate code"""
-    if not climate_code:
-        return '#808080'
-    
-    climate_clean = str(climate_code)
-    if " - " in climate_clean:
-        climate_clean = climate_clean.split(" - ")[0]
-    climate_clean = ''.join([c for c in climate_clean if c.isalnum()])
-    
-    colors = {
-        'Af': '#0000FE', 'Am': '#0077FD', 'Aw': '#44A7F8',
-        'BWh': '#FD0000', 'BWk': '#F89292', 'BSh': '#F4A400', 'BSk': '#FEDA60',
-        'Csa': '#FFFE04', 'Csb': '#CDCE08', 'Cwa': '#95FE97', 'Cwb': '#62C764',
-        'Cfa': '#C5FF4B', 'Cfb': '#64FD33', 'Cfc': '#36C901',
-        'Dfa': '#01FEFC', 'Dfb': '#3DC6FA', 'Dfc': '#037F7F', 'Dfd': '#004860',
-        'Dwa': '#A5ADFE', 'Dwb': '#4A78E7', 'Dwc': '#48DDB1',
-        'ET': '#AFB0AB', 'EF': '#686964',
-        'Var': '#999999'
-    }
     
     climate_upper = climate_clean.upper()
     color_map = {k.upper(): v for k, v in colors.items()}
@@ -191,10 +172,6 @@ def render_location_map(db_connection):
         
         # Process records
         location_records, location_groups = prepare_location_data(valid_records)
-        
-        # Debug info
-        st.sidebar.write(f"📍 Records with coordinates: {len(location_records)}")
-        st.sidebar.write(f"🗺️ Location groups: {len(location_groups)}")
     
     if not location_records:
         st.info("📭 No location data available for mapping.")
@@ -210,8 +187,8 @@ def render_location_map(db_connection):
     filters_changed = st.session_state.last_filter_hash != filter_hash
     
     # Debug
-    st.sidebar.write(f"🔄 Filters changed: {filters_changed}")
-    st.sidebar.write(f"🗺️ Map in session: {'map' in st.session_state}")
+    # st.sidebar.write(f"🔄 Filters changed: {filters_changed}")
+    # st.sidebar.write(f"🗺️ Map in session: {'map' in st.session_state}")
 
     # Recreate map if filters changed or first run
     if filters_changed or 'map' not in st.session_state:
@@ -309,7 +286,7 @@ def render_location_map(db_connection):
 
     # Display the map from session state
     if 'map' in st.session_state:
-        st.sidebar.write("🗺️ Displaying map from session")
+        #st.sidebar.write("🗺️ Displaying map from session")
         folium_static(st.session_state.map, width=800, height=500)
     else:
         st.info("Loading map...")
@@ -365,10 +342,6 @@ def render_location_map(db_connection):
                 else:
                     geographic_records.append(record)
 
-    # Double-check that location_records matches geographic_records
-    # (This is just for debugging - can be removed later)
-    if len(location_records) != len(geographic_records):
-        print(f"⚠️ Warning: location_records ({len(location_records)}) != geographic_records ({len(geographic_records)})")
 
     if unspecified_records:
         with st.expander(f"📋 Studies Without Specific Locations ({len(unspecified_records)} records)"):
