@@ -697,13 +697,13 @@ def render_frequency_analysis(db_connection):
                             'analysis_type': analysis_type
                         }
                         
-                        # DEBUG: Print what we're saving
-                        st.write("🔍 DEBUG - Saving analysis with data:")
-                        st.write(f"top_sorted exists: {bool(top_sorted)}")
-                        st.write(f"bottom_sorted exists: {bool(bottom_sorted)}")
-                        st.write(f"top_height: {top_height}")
-                        st.write(f"bottom_height: {bottom_height}")
-                        st.write(f"analysis_type: {analysis_type}")
+                        # # DEBUG: Print what we're saving
+                        # st.write("🔍 DEBUG - Saving analysis with data:")
+                        # st.write(f"top_sorted exists: {bool(top_sorted)}")
+                        # st.write(f"bottom_sorted exists: {bool(bottom_sorted)}")
+                        # st.write(f"top_height: {top_height}")
+                        # st.write(f"bottom_height: {bottom_height}")
+                        # st.write(f"analysis_type: {analysis_type}")
                         
                         # Use a unique key approach to avoid duplication
                         if 'saved_visuals' not in st.session_state:
