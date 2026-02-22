@@ -4,7 +4,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 from collections import Counter
-# At the top of your determinant_analysis.py, add these imports:
+import re
+import base64
 from color_schemes import (
     get_climate_color,
     get_scale_color,
@@ -12,8 +13,8 @@ from color_schemes import (
     get_approach_color
 )
 
-# Then replace your get_item_color function with this:
-def get_item_color(item):
+# Module-level color function
+def get_item_color(item, analysis_type):
     """Get color for item based on analysis type"""
     if "Climate" in analysis_type:
         return get_climate_color(item)
@@ -23,6 +24,7 @@ def get_item_color(item):
         return get_building_use_color(item)
     else:  # Approach
         return get_approach_color(item)
+
 if 'analyses_list' not in st.session_state:
     st.session_state.analyses_list = []
     
@@ -115,7 +117,7 @@ def render_frequency_analysis(db_connection):
     left_col, mid_col, right_col = st.columns([1, 1, 1])
     
     with left_col:
-     # Analysis type selector
+        # Analysis type selector
         analysis_type = st.selectbox(
             "Select moderator",
             options=[
@@ -223,18 +225,6 @@ def render_frequency_analysis(db_connection):
                         options=decrease_options,
                         key="bottom_energy_active"
                     )
-        
-        # Define color function based on analysis type
-        def get_item_color(item):
-            """Get color for item based on analysis type"""
-            if "Climate" in analysis_type:
-                return get_climate_color(item)
-            elif "Scale" in analysis_type:
-                return get_scale_color(item)
-            elif "Building Use" in analysis_type:
-                return get_building_use_color(item)
-            else:  # Approach
-                return get_approach_color(item)
         
         # Process top stack if selected
         if selected_determinant and selected_top and selected_top != "-- Choose energy output --":
@@ -388,14 +378,14 @@ def render_frequency_analysis(db_connection):
                 box-shadow: none;
                 display: block;
                 margin: 10px auto;
-                width: auto;  /* Fixed width for all charts */
+                width: auto;
                 box-sizing: border-box;
             }
             .stack-container {
                 display: flex;
                 flex-direction: row;
                 align-items: stretch;
-                width: auto;  /* Fixed width */
+                width: auto;
                 margin: 0 auto;
                 padding: 0;
             }
@@ -403,14 +393,14 @@ def render_frequency_analysis(db_connection):
                 display: flex;
                 flex-direction: column;
                 flex: 1;
-                width: auto;  /* Fixed width for bars */
+                width: auto;
             }
             .frequency-box {
                 width: 100%;
                 height: 28px;
                 margin: 0;
                 padding: 0 3px;
-                border: 1px dashed rgba(0,0,0,0.3);  /* Subtle dashed border */
+                border: 1px dashed rgba(0,0,0,0.3);
                 display: flex;
                 align-items: center;
                 justify-content: center;
@@ -426,12 +416,11 @@ def render_frequency_analysis(db_connection):
             .frequency-box:last-child {
                 border-bottom: 1px dashed rgba(0,0,0,0.3);
             }
-            /* Remove border overlap between stacked boxes */
             .frequency-box + .frequency-box {
                 border-top: none;
             }
             .display-box {
-                width: auto;  /* Fixed width */
+                width: auto;
                 height: 36px;
                 margin: 0;
                 padding: 0 3px;
@@ -448,7 +437,7 @@ def render_frequency_analysis(db_connection):
                 text-overflow: ellipsis;
             }
             .arrow-column {
-                width: 60px;  /* Fixed width for arrows */
+                width: 60px;
                 margin-right: 0;
             }
             .saved-chart {
@@ -474,43 +463,22 @@ def render_frequency_analysis(db_connection):
                 
                 # TOP SECTION - Increase results
                 if top_items and selected_top:
-                    # Count and sort as before
-                    top_counts = {}
-                    for ti in top_items:
-                        clean = ti['clean']
-                        top_counts[clean] = top_counts.get(clean, 0) + 1
-                    
-                    top_sorted = []
-                    for clean, count in sorted(top_counts.items(), key=lambda x: x[1], reverse=True):
-                        display = next((ti['display'] for ti in top_items if ti['clean'] == clean), clean)
-                        top_sorted.append((display, count))
-                    
                     for display_name, count in top_sorted:
                         for i in range(count):
-                            color = get_item_color(display_name)
+                            color = get_item_color(display_name, analysis_type)
                             st.markdown(f'<div class="frequency-box" style="background-color: {color};">{display_name}</div>', unsafe_allow_html=True)
                 else:
                     # Placeholder to maintain spacing
                     st.markdown('<div class="frequency-box" style="opacity:0;"></div>', unsafe_allow_html=True)
+                
                 # Middle display box (Determinant)
                 st.markdown(f'<div class="display-box">{selected_determinant}</div>', unsafe_allow_html=True)
 
                 # BOTTOM SECTION - Decrease results
                 if bottom_items and selected_bottom:
-                    # Count and sort as before
-                    bottom_counts = {}
-                    for bi in bottom_items:
-                        clean = bi['clean']
-                        bottom_counts[clean] = bottom_counts.get(clean, 0) + 1
-                    
-                    bottom_sorted = []
-                    for clean, count in sorted(bottom_counts.items(), key=lambda x: x[1], reverse=True):
-                        display = next((bi['display'] for bi in bottom_items if bi['clean'] == clean), clean)
-                        bottom_sorted.append((display, count))
-                    
                     for display_name, count in bottom_sorted:
                         for i in range(count):
-                            color = get_item_color(display_name)
+                            color = get_item_color(display_name, analysis_type)
                             st.markdown(f'<div class="frequency-box" style="background-color: {color};">{display_name}</div>', unsafe_allow_html=True)
                 else:
                     # Placeholder to maintain spacing
@@ -584,169 +552,524 @@ def render_frequency_analysis(db_connection):
 
     # Add button to save this visual (in left column, below dropdowns)
     with left_col:
-        if selected_determinant and selected_top and selected_bottom:
+        if selected_determinant and selected_top and selected_bottom and selected_top != "-- Choose energy output --" and selected_bottom != "-- Choose energy output --":
             if st.session_state.get('logged_in', False):
-                if st.button("Save this Analysis", key="save_visual"):
-                    if top_items and bottom_items:
-                        # Outer container – full width of parent (middle column)
-                        visual_html = ['<div style="width: 100%; margin-bottom: 20px;">']
-                        
-                        # Flex row for chart
-                        visual_html.append('<div style="display: flex; flex-direction: row; align-items: stretch; width: 100%;">')
-                        
-                        # LEFT COLUMN - Bars (flex-grow)
-                        visual_html.append('<div style="flex: 1; min-width: 0;">')
-                        
-                        # Top bars
-                        for item, count in top_sorted:
-                            for i in range(count):
-                                color = get_item_color(item)
-                                # Show label on EVERY box with dashed border
-                                visual_html.append(f'<div style="width: 100%; height: 28px; background-color: {color}; display: flex; align-items: center; justify-content: center; color: black; font-size: 12px; border: 1px dashed rgba(0,0,0,0.3); box-sizing: border-box;">{item}</div>')
-                        
-                        # Determinant box
-                        visual_html.append(f'<div style="width: 100%; height: 36px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 13px; background-color: #f0f2f6; border: 2px solid #000000; box-sizing: border-box;">{selected_determinant}</div>')
-                        
-                        # Bottom bars
-                        for item, count in bottom_sorted:
-                            for i in range(count):
-                                color = get_item_color(item)
-                                visual_html.append(f'<div style="width: 100%; height: 28px; background-color: {color}; display: flex; align-items: center; justify-content: center; color: black; font-size: 12px; border: 1px dashed rgba(0,0,0,0.3); box-sizing: border-box;">{item}</div>')
-                        
-                        visual_html.append('</div>')  # Close left column
-                        
-                        # RIGHT COLUMN - Arrows (fixed width 60px)
-                        visual_html.append('<div style="width: 60px; position: relative;">')
-                        
-                        # Top arrow section
-                        top_stack_height = top_height * 28
-                        
-                        # Get the display name for the energy output
-                        if "ALL ENERGY OUTPUTS (INCREASE)" in selected_top:
-                            energy_name_top = "All Increase"
-                        else:
-                            energy_name_top = selected_top.split(" [")[0]
-                        
-                        increase_count = top_height
-                        text_length_top = len(energy_name_top) + len(f"(Increase) {increase_count}")
-                        text_height_top = text_length_top * 11
+                # Create two columns for Save and Export buttons
+                col_save, col_export, _ = st.columns([1, 1, 1])
+                
+                with col_save:
+                    if st.button("💾 Save to Collection", key="save_visual", use_container_width=True):
+                        if top_items and bottom_items:
+                            # Outer container – full width
+                            visual_html = ['<div style="width: 100%; margin-bottom: 0;">']
+                            
+                            # Flex row for chart
+                            visual_html.append('<div style="display: flex; flex-direction: row; align-items: stretch; width: 100%;">')
+                            
+                            # LEFT COLUMN - Bars (flex-grow)
+                            visual_html.append('<div style="flex: 1; min-width: 0;">')
+                            
+                            # Top bars
+                            for display_name, count in top_sorted:
+                                for i in range(count):
+                                    color = get_item_color(display_name, analysis_type)
+                                    visual_html.append(f'<div style="width: 100%; height: 28px; background-color: {color}; display: flex; align-items: center; justify-content: center; color: black; font-size: 12px; border: 1px dashed rgba(0,0,0,0.3); box-sizing: border-box;">{display_name}</div>')
+                            
+                            # Determinant box
+                            visual_html.append(f'<div style="width: 100%; height: 36px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 13px; background-color: #f0f2f6; border: 2px solid #000000; box-sizing: border-box;">{selected_determinant}</div>')
+                            
+                            # Bottom bars
+                            for display_name, count in bottom_sorted:
+                                for i in range(count):
+                                    color = get_item_color(display_name, analysis_type)
+                                    visual_html.append(f'<div style="width: 100%; height: 28px; background-color: {color}; display: flex; align-items: center; justify-content: center; color: black; font-size: 12px; border: 1px dashed rgba(0,0,0,0.3); box-sizing: border-box;">{display_name}</div>')
+                            
+                            visual_html.append('</div>')  # Close left column
+                            
+                            # RIGHT COLUMN - Arrows (fixed width 60px)
+                            visual_html.append('<div style="width: 60px; position: relative;">')
+                            
+                            # Top arrow section
+                            top_stack_height = top_height * 28
+                            
+                            # Get the display name for the energy output
+                            if "ALL ENERGY OUTPUTS (INCREASE)" in selected_top:
+                                energy_name_top = "All Increase"
+                            else:
+                                energy_name_top = selected_top.split(" [")[0]
+                            
+                            increase_count = top_height
+                            text_length_top = len(energy_name_top) + len(f"(Increase) {increase_count}")
+                            text_height_top = text_length_top * 11
 
-                        visual_html.append(f'''
-                        <div style="position: relative; height: {top_stack_height}px; width: 60px; margin-bottom: 0;">
-                            <div style="position: absolute; left: 10px; top: {top_stack_height}px; width: 3px; height: {top_stack_height}px; background-color: #e74c3c; transform: translateY(-100%);"></div>
-                            <div style="position: absolute; left: 4px; top: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid #e74c3c;"></div>
-                            <div style="position: absolute; left: 20px; bottom: 0; height: {max(top_stack_height, text_height_top)}px; display: flex; flex-direction: column; justify-content: flex-start; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); color: #e74c3c; white-space: nowrap; line-height: 1.2;">
-                                <div style="margin: 0;">{energy_name_top}</div>
-                                <div style="margin-bottom: auto; opacity: 0.9;">Increase [{increase_count}]</div>
+                            visual_html.append(f'''
+                            <div style="position: relative; height: {top_stack_height}px; width: 60px; margin-bottom: 0;">
+                                <div style="position: absolute; left: 10px; top: {top_stack_height}px; width: 3px; height: {top_stack_height}px; background-color: #e74c3c; transform: translateY(-100%);"></div>
+                                <div style="position: absolute; left: 4px; top: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid #e74c3c;"></div>
+                                <div style="position: absolute; left: 20px; bottom: 0; height: {max(top_stack_height, text_height_top)}px; display: flex; flex-direction: column; justify-content: flex-start; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); color: #e74c3c; white-space: nowrap; line-height: 1.2;">
+                                    <div style="margin: 0;">{energy_name_top}</div>
+                                    <div style="margin-bottom: auto; opacity: 0.9;">Increase [{increase_count}]</div>
+                                </div>
                             </div>
-                        </div>
-                        ''')
-                        
-                        # Determinant spacer
-                        visual_html.append('<div style="height: 36px; width: 60px;"></div>')
-                        
-                        # Bottom arrow section
-                        bottom_stack_height = bottom_height * 28
-                        
-                        # Get the display name for the energy output
-                        if "ALL ENERGY OUTPUTS (DECREASE)" in selected_bottom:
-                            energy_name_bottom = "All Decrease"
-                        else:
-                            energy_name_bottom = selected_bottom.split(" [")[0]
-                        
-                        decrease_count = bottom_height
-                        text_length_bottom = len(energy_name_bottom) + len(f"(Decrease) {decrease_count}")
-                        text_height_bottom = text_length_bottom * 11
+                            ''')
+                            
+                            # Determinant spacer
+                            visual_html.append('<div style="height: 36px; width: 60px;"></div>')
+                            
+                            # Bottom arrow section
+                            bottom_stack_height = bottom_height * 28
+                            
+                            # Get the display name for the energy output
+                            if "ALL ENERGY OUTPUTS (DECREASE)" in selected_bottom:
+                                energy_name_bottom = "All Decrease"
+                            else:
+                                energy_name_bottom = selected_bottom.split(" [")[0]
+                            
+                            decrease_count = bottom_height
+                            text_length_bottom = len(energy_name_bottom) + len(f"(Decrease) {decrease_count}")
+                            text_height_bottom = text_length_bottom * 11
+                                                
+                            visual_html.append(f'''
+                            <div style="position: relative; height: {bottom_stack_height}px; width: 60px; margin-top: 0;">
+                                <div style="position: absolute; left: 10px; top: 0; width: 3px; height: {bottom_stack_height}px; background-color: #3498db;"></div>
+                                <div style="position: absolute; left: 4px; bottom: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-top: 14px solid #3498db;"></div>
+                                <div style="position: absolute; left: 20px; top: 0; height: {max(bottom_stack_height, text_height_bottom)}px; display: flex; flex-direction: column; justify-content: flex-start; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); color: #3498db; white-space: nowrap; line-height: 1.2;">
+                                    <div style="margin-top: auto;">{energy_name_bottom}</div>
+                                    <div style="margin-top: auto; opacity: 0.9;">Decrease [{decrease_count}]</div>
+                                </div>
+                            </div>
+                            ''')
+                            
+                            visual_html.append('</div>')  # Close right column
+                            visual_html.append('</div>')  # Close flex row
+                            
+                            visual_html.append('</div>')  # Close outer container - NO LEGEND
+                            
+                            # Get user_id
+                            user_id = st.session_state.user_id
+                            
+                            # Save to database WITHOUT svg parameter
+                            result = db_connection.save_analysis(
+                                user_id=user_id,
+                                analysis_type=analysis_type,
+                                determinant=selected_determinant,
+                                top_energy=selected_top,
+                                bottom_energy=selected_bottom,
+                                html=''.join(visual_html)
+                            )
                                             
-                        visual_html.append(f'''
-                        <div style="position: relative; height: {bottom_stack_height}px; width: 60px; margin-top: 0;">
-                            <div style="position: absolute; left: 10px; top: 0; width: 3px; height: {bottom_stack_height}px; background-color: #3498db;"></div>
-                            <div style="position: absolute; left: 4px; bottom: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-top: 14px solid #3498db;"></div>
-                            <div style="position: absolute; left: 20px; top: 0; height: {max(bottom_stack_height, text_height_bottom)}px; display: flex; flex-direction: column; justify-content: flex-start; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); color: #3498db; white-space: nowrap; line-height: 1.2;">
-                                <div style="margin-top: auto;">{energy_name_bottom}</div>
-                                <div style="margin-top: auto; opacity: 0.9;">Decrease [{decrease_count}]</div>
-                            </div>
-                        </div>
-                        ''')
-                        
-                        visual_html.append('</div>')  # Close right column
-                        visual_html.append('</div>')  # Close flex row
-                        
-                        # Legend – positioned under bars column only (width = total minus 60px)
-                        top_name = "All Increase" if "ALL ENERGY OUTPUTS (INCREASE)" in selected_top else selected_top.split(" [")[0]
-                        bottom_name = "All Decrease" if "ALL ENERGY OUTPUTS (DECREASE)" in selected_bottom else selected_bottom.split(" [")[0]
-                        
-                        visual_html.append(f'''
-                        <div style="width: calc(100% - 60px); margin-top: 10px; font-size: 12pt; line-height: 1.4; color: #2c3e50; word-wrap: break-word;">
-                            {analysis_type.strip()} frequency in studies of <b>{selected_determinant}</b> showing 
-                            <b>{top_name}</b> <span style="color: #e74c3c;">Increase [{top_height}]</span> and 
-                            <b>{bottom_name}</b> <span style="color: #3498db;">Decrease [{bottom_height}]</span>
-                        </div>
-                        ''')
-                        
-                        visual_html.append('</div>')  # Close outer container
-                        
-                        st.session_state.saved_visuals.append({
-                            'html': ''.join(visual_html),
-                            'type': analysis_type,
-                            'determinant': selected_determinant,
-                            'top_energy': selected_top,
-                            'bottom_energy': selected_bottom
-                        })
-
-                        # Save to database
-                        user_id = st.session_state.user_id
-                        result = db_connection.save_analysis(
-                            user_id=user_id,
-                            analysis_type=analysis_type,
+                            # Add to session state with ALL the data needed for SVG generation
+                            new_item = {
+                                'id': result[0]['id'] if db_connection.use_supabase else result,
+                                'html': ''.join(visual_html),
+                                'type': analysis_type,
+                                'determinant': selected_determinant,
+                                'top_energy': selected_top,
+                                'bottom_energy': selected_bottom,
+                                # Store the raw data needed for SVG generation
+                                'top_sorted': top_sorted.copy(),
+                                'bottom_sorted': bottom_sorted.copy(),
+                                'top_height': top_height,
+                                'bottom_height': bottom_height,
+                                'analysis_type': analysis_type
+                            }
+                            
+                            # Use a unique key approach to avoid duplication
+                            if 'saved_visuals' not in st.session_state:
+                                st.session_state.saved_visuals = []
+                            
+                            # Check if already exists to avoid duplicates
+                            exists = False
+                            for existing in st.session_state.saved_visuals:
+                                if existing.get('id') == new_item['id']:
+                                    exists = True
+                                    break
+                            
+                            if not exists:
+                                st.session_state.saved_visuals.append(new_item)
+                                st.success(f"✅ Added {selected_determinant} analysis to collection")
+                            else:
+                                st.info("This analysis is already in your collection")
+                            
+                            st.rerun()
+                
+                with col_export:
+                    if st.button("📥 Export SVG", key="export_current_svg", use_container_width=True):
+                        # Generate SVG using current data
+                        svg_content = generate_analysis_svg(
                             determinant=selected_determinant,
-                            top_energy=selected_top,
-                            bottom_energy=selected_bottom,
-                            html=''.join(visual_html)
+                            analysis_type=analysis_type,
+                            top_sorted=top_sorted,
+                            bottom_sorted=bottom_sorted,
+                            top_height=top_height,
+                            bottom_height=bottom_height,
+                            selected_top=selected_top,
+                            selected_bottom=selected_bottom
                         )
                         
-                        # Also add to session state for immediate display
-                        new_item = {
-                            'id': result[0]['id'] if db_connection.use_supabase else result,
-                            'html': ''.join(visual_html),
-                            'type': analysis_type,
-                            'determinant': selected_determinant,
-                            'top_energy': selected_top,
-                            'bottom_energy': selected_bottom
-                        }
+                        # Download SVG
+                        b64 = base64.b64encode(svg_content.encode()).decode()
+                        filename = f"{selected_determinant}_{analysis_type.strip()}_Analysis.svg".replace(' ', '_')
                         
-                        st.session_state.saved_visuals.append(new_item)
-                        st.success(f"Added {selected_determinant} analysis to collection")
-                        st.rerun()
+                        st.markdown(f'''
+                        <div style="padding: 10px; background-color: #f0f2f6; border-radius: 5px; margin: 10px 0;">
+                            <a href="data:image/svg+xml;base64,{b64}" download="{filename}" 
+                               style="background-color: #4CAF50; color: white; padding: 8px 16px; 
+                                      text-decoration: none; border-radius: 4px; display: inline-block;">
+                                📥 Click to save {filename}
+                            </a>
+                        </div>
+                        ''', unsafe_allow_html=True)
             else:
-                st.info("Please log in to save analyses to your collection.")
+                # For non-logged in users, just show export button
+                if st.button("📥 Export SVG", key="export_current_svg", use_container_width=True):
+                    if top_items and bottom_items:
+                        svg_content = generate_analysis_svg(
+                            determinant=selected_determinant,
+                            analysis_type=analysis_type,
+                            top_sorted=top_sorted,
+                            bottom_sorted=bottom_sorted,
+                            top_height=top_height,
+                            bottom_height=bottom_height,
+                            selected_top=selected_top,
+                            selected_bottom=selected_bottom
+                        )
+                        
+                        b64 = base64.b64encode(svg_content.encode()).decode()
+                        filename = f"{selected_determinant}_{analysis_type.strip()}_Analysis.svg".replace(' ', '_')
+                        
+                        st.markdown(f'''
+                        <div style="padding: 10px; background-color: #f0f2f6; border-radius: 5px; margin: 10px 0;">
+                            <a href="data:image/svg+xml;base64,{b64}" download="{filename}" 
+                               style="background-color: #4CAF50; color: white; padding: 8px 16px; 
+                                      text-decoration: none; border-radius: 4px; display: inline-block;">
+                                📥 Click to save {filename}
+                            </a>
+                        </div>
+                        ''', unsafe_allow_html=True)
 
     # ANALYSIS SUITE SECTION
     if st.session_state.saved_visuals:
         st.markdown('<div class="analysis-suite-header"></div>', unsafe_allow_html=True)
         st.subheader("Your Analysis Collection")
         
-        # Clear all button (centered)
-        col1, col2, col3 = st.columns([1, 1, 1])
-        with col1:
-            if st.button("Clear All", key="clear_all_suite"):
+        # Export All and Clear All buttons
+        col_export_all, col_clear, _ = st.columns([1, 1, 4])
+        
+        with col_export_all:
+            if st.button("📥 Export All as HTML", key="export_all_analyses", use_container_width=True):
+                # Generate a combined HTML file with all analyses
+                all_charts_html = '<html><head><title>Analysis Collection</title></head><body style="font-family: Arial, sans-serif;">'
+                all_charts_html += '<h1 style="text-align: center;">Analysis Collection</h1>'
+                
+                for i, visual in enumerate(st.session_state.saved_visuals):
+                    all_charts_html += f'<h2>Analysis {i+1}: {visual["determinant"]} - {visual["type"].strip()}</h2>'
+                    all_charts_html += visual['html']
+                    if i < len(st.session_state.saved_visuals) - 1:
+                        all_charts_html += '<hr style="margin: 40px 0; border: 1px dashed #ccc;">'
+                
+                all_charts_html += '</body></html>'
+                
+                # Download combined HTML
+                b64 = base64.b64encode(all_charts_html.encode()).decode()
+                filename = "Analysis_Collection.html"
+                
+                st.markdown(f'''
+                <div style="padding: 10px; background-color: #f0f2f6; border-radius: 5px; margin: 10px 0;">
+                    <p style="margin-bottom: 10px; font-weight: bold;">✅ Combined HTML Ready for Download:</p>
+                    <a href="data:text/html;charset=utf-8;base64,{b64}" download="{filename}" 
+                       style="background-color: #4CAF50; color: white; padding: 8px 16px; 
+                              text-decoration: none; border-radius: 4px; display: inline-block;">
+                        📥 Click here to save {filename}
+                    </a>
+                    <p style="margin-top: 8px; font-size: 12px; color: #666;">
+                        Contains all {len(st.session_state.saved_visuals)} analyses in one HTML file.
+                    </p>
+                </div>
+                ''', unsafe_allow_html=True)
+        
+        with col_clear:
+            if st.button("🗑️ Clear All", key="clear_all_suite", use_container_width=True):
+                # Delete all from database first
+                if st.session_state.get('logged_in') and st.session_state.get('user_id'):
+                    for visual in st.session_state.saved_visuals:
+                        try:
+                            db_connection.delete_analysis(visual['id'])
+                        except:
+                            pass
+                # Clear session state
                 st.session_state.saved_visuals = []
                 st.rerun()
         
-        # Display each saved visual
+        # Display each saved visual with generous spacing
         for i, visual in enumerate(st.session_state.saved_visuals):
-            colA, colB, colC = st.columns([1, 1, 1])
+            # Add top spacing for all but first item
+            if i > 0:
+                st.markdown('<div style="margin-top: 40px;"></div>', unsafe_allow_html=True)
+            
+            # First row: Controls and Export SVG button
+            colA, colB, colC, colD = st.columns([1, 1.5, 1.5, 2])
+            
             with colA:
-                if st.button(f"❌ Remove", key=f"remove_saved_{i}"):
+                if st.button(f"❌ Remove", key=f"remove_saved_{i}", use_container_width=True):
                     # Delete from database
-                    db_connection.delete_analysis(visual['id'])
+                    try:
+                        db_connection.delete_analysis(visual['id'])
+                    except:
+                        pass
                     # Remove from session state
                     st.session_state.saved_visuals.pop(i)
                     st.rerun()
-                    
+            
             with colB:
                 st.markdown(f"**Analysis {i+1}:**")
+            
+            with colC:
+                st.markdown(f"{visual['determinant']} - {visual['type'].strip()}")
+            
+            with colD:
+                if st.button(f"📥 Export SVG", key=f"export_svg_{i}", use_container_width=True):
+                    # Create SVG from the HTML content
+                    # Extract the chart parts from the HTML
+                    svg_content = convert_html_to_svg(visual['html'], visual['determinant'], visual['type'])
+                    
+                    # Download individual SVG
+                    b64 = base64.b64encode(svg_content.encode()).decode()
+                    filename = f"Analysis_{i+1}_{visual['determinant']}.svg".replace(' ', '_')
+                    
+                    st.markdown(f'''
+                    <div style="padding: 5px; background-color: #f0f2f6; border-radius: 5px; margin: 5px 0;">
+                        <a href="data:image/svg+xml;base64,{b64}" download="{filename}" 
+                           style="background-color: #4CAF50; color: white; padding: 4px 8px; 
+                                  text-decoration: none; border-radius: 4px; display: inline-block; font-size: 12px;">
+                            📥 Save {filename}
+                        </a>
+                    </div>
+                    ''', unsafe_allow_html=True)
+            
+            # Add small spacing before chart
+            st.markdown('<div style="margin-top: 10px;"></div>', unsafe_allow_html=True)
+            
+            # Chart with specified proportions
+            chart_spacer1, chart_main, chart_spacer2 = st.columns([1, 1.25, 1])
+            
+            with chart_main:
                 st.markdown(visual['html'], unsafe_allow_html=True)
-            # colC stays empty
+            
+            # Add extra bottom spacing to prevent clash with next item
+            st.markdown('<div style="margin-bottom: 120px;"></div>', unsafe_allow_html=True)
+            
+            # Divider with extra spacing
             if i < len(st.session_state.saved_visuals) - 1:
                 st.divider()
+                st.markdown('<div style="margin-top: 30px;"></div>', unsafe_allow_html=True)
+
+
+def convert_html_to_svg(html_content, determinant, analysis_type):
+    """Convert HTML chart to SVG format"""
+    import re
+    
+    # Extract colors and text from the HTML
+    # This is a simplified conversion - you may need to adjust based on your HTML structure
+    
+    # Find all frequency boxes (the colored bars)
+    box_pattern = r'<div class="frequency-box" style="background-color: (.*?);">(.*?)</div>'
+    boxes = re.findall(box_pattern, html_content, re.DOTALL)
+    
+    # Find determinant box
+    det_pattern = r'<div class="display-box">(.*?)</div>'
+    determinant_text = re.findall(det_pattern, html_content, re.DOTALL)
+    
+    # Calculate dimensions
+    bar_height = 28
+    determinant_height = 36
+    num_top_boxes = 0
+    num_bottom_boxes = 0
+    in_top_section = True
+    
+    # Count boxes to determine heights
+    for color, text in boxes:
+        if text.strip() == determinant_text[0] if determinant_text else "":
+            in_top_section = False
+            continue
+        if in_top_section:
+            num_top_boxes += 1
+        else:
+            num_bottom_boxes += 1
+    
+    top_stack_height = num_top_boxes * bar_height
+    bottom_stack_height = num_bottom_boxes * bar_height
+    total_height = top_stack_height + determinant_height + bottom_stack_height + 100
+    
+    # Start building SVG
+    svg = [f'''<?xml version="1.0" encoding="UTF-8"?>
+<svg width="800" height="{total_height}" xmlns="http://www.w3.org/2000/svg">
+    <style>
+        .bar-label {{ font-family: Arial; font-size: 12px; }}
+        .display-box {{ font-family: Arial; font-size: 13px; font-weight: bold; }}
+    </style>
+''']
+    
+    y_pos = 50
+    
+    # Add top bars
+    in_top = True
+    for color, text in boxes:
+        if text.strip() == determinant_text[0] if determinant_text else "":
+            in_top = False
+            continue
+        
+        if in_top:
+            # Clean color string
+            color = color.strip()
+            svg.append(f'    <rect x="50" y="{y_pos}" width="500" height="{bar_height}" fill="{color}" rx="4" ry="4" />')
+            # Determine text color based on background
+            text_color = "white" if color in ['#105e8d', '#2470a0', '#3882b3', '#4c94c6', '#FF4444', '#44AA44', '#4444FF'] else "black"
+            svg.append(f'    <text x="55" y="{y_pos + 18}" class="bar-label" fill="{text_color}">{text.strip()}</text>')
+            y_pos += bar_height
+    
+    # Add determinant box
+    if determinant_text:
+        svg.append(f'    <rect x="50" y="{y_pos}" width="500" height="{determinant_height}" fill="#f0f2f6" stroke="black" stroke-width="2" rx="4" ry="4" />')
+        svg.append(f'    <text x="55" y="{y_pos + 23}" class="display-box" fill="black">{determinant_text[0].strip()}</text>')
+        y_pos += determinant_height
+    
+    # Add bottom bars
+    for color, text in boxes:
+        if text.strip() != determinant_text[0] if determinant_text else "":
+            color = color.strip()
+            svg.append(f'    <rect x="50" y="{y_pos}" width="500" height="{bar_height}" fill="{color}" rx="4" ry="4" />')
+            text_color = "white" if color in ['#105e8d', '#2470a0', '#3882b3', '#4c94c6', '#FF4444', '#44AA44', '#4444FF'] else "black"
+            svg.append(f'    <text x="55" y="{y_pos + 18}" class="bar-label" fill="{text_color}">{text.strip()}</text>')
+            y_pos += bar_height
+    
+    # Extract arrow information from HTML (simplified - you may need to parse the arrow section)
+    # This is a placeholder - you might want to extract the actual arrow text from the HTML
+    arrow_x = 600
+    
+    # Add placeholder arrows (you may want to parse these from the HTML)
+    if top_stack_height > 0:
+        svg.append(f'    <line x1="{arrow_x+10}" y1="50" x2="{arrow_x+10}" y2="{50 + top_stack_height}" stroke="#e74c3c" stroke-width="3" />')
+        svg.append(f'    <polygon points="{arrow_x+4},50 {arrow_x+16},50 {arrow_x+10},36" fill="#e74c3c" />')
+    
+    if bottom_stack_height > 0:
+        bottom_start = 50 + top_stack_height + determinant_height
+        svg.append(f'    <line x1="{arrow_x+10}" y1="{bottom_start}" x2="{arrow_x+10}" y2="{bottom_start + bottom_stack_height}" stroke="#3498db" stroke-width="3" />')
+        svg.append(f'    <polygon points="{arrow_x+4},{bottom_start + bottom_stack_height} {arrow_x+16},{bottom_start + bottom_stack_height} {arrow_x+10},{bottom_start + bottom_stack_height+14}" fill="#3498db" />')
+    
+    svg.append('</svg>')
+    return '\n'.join(svg)
+
+
+def generate_analysis_svg(determinant, analysis_type, top_sorted, bottom_sorted, top_height, bottom_height, selected_top, selected_bottom):
+    """Generate SVG version of the analysis chart matching HTML display"""
+    
+    # Calculate dimensions
+    bar_height = 28
+    determinant_height = 36
+    top_stack_height = top_height * bar_height
+    bottom_stack_height = bottom_height * bar_height
+    total_height = top_stack_height + determinant_height + bottom_stack_height + 100
+    
+    # Get the display names for energy outputs
+    if "ALL ENERGY OUTPUTS (INCREASE)" in selected_top:
+        energy_name_top = "All Increase"
+        top_display = "All Increase"
+    else:
+        energy_name_top = selected_top.split(" [")[0]
+        top_display = energy_name_top
+    
+    if "ALL ENERGY OUTPUTS (DECREASE)" in selected_bottom:
+        energy_name_bottom = "All Decrease"
+        bottom_display = "All Decrease"
+    else:
+        energy_name_bottom = selected_bottom.split(" [")[0]
+        bottom_display = energy_name_bottom
+    
+    svg = [f'''<?xml version="1.0" encoding="UTF-8"?>
+<svg width="800" height="{total_height}" xmlns="http://www.w3.org/2000/svg">
+    <style>
+        .bar-label {{ font-family: Arial; font-size: 12px; text-anchor: middle; dominant-baseline: middle; }}
+        .display-box {{ font-family: Arial; font-size: 13px; font-weight: bold; text-anchor: middle; dominant-baseline: middle; }}
+        .arrow-text {{ font-family: Arial; font-size: 14px; fill: white; font-weight: bold; }}
+    </style>
+''']
+    
+    y_pos = 50
+    
+    # Top bars - NO ROUNDING
+    if top_sorted:
+        for display_name, count in top_sorted:
+            for i in range(count):
+                color = get_item_color(display_name, analysis_type)
+                # Draw bar with no rounding
+                svg.append(f'    <rect x="50" y="{y_pos}" width="500" height="{bar_height}" fill="{color}" rx="0" ry="0" />')
+                # Add dashed border with no rounding
+                svg.append(f'    <rect x="50" y="{y_pos}" width="500" height="{bar_height}" fill="none" stroke="rgba(0,0,0,0.3)" stroke-width="1" stroke-dasharray="5,5" rx="0" ry="0" />')
+                # Centered text
+                svg.append(f'    <text x="300" y="{y_pos + bar_height/2 + 1}" class="bar-label" fill="black">{display_name}</text>')
+                y_pos += bar_height
+    
+    # Determinant box - keep rounded corners as original
+    svg.append(f'    <rect x="50" y="{y_pos}" width="500" height="{determinant_height}" fill="#f0f2f6" stroke="black" stroke-width="2" rx="0" ry="0" />')
+    svg.append(f'    <text x="300" y="{y_pos + determinant_height/2 + 1}" class="display-box" fill="black">{determinant}</text>')
+    y_pos += determinant_height
+    
+    # Bottom bars - NO ROUNDING
+    if bottom_sorted:
+        for display_name, count in bottom_sorted:
+            for i in range(count):
+                color = get_item_color(display_name, analysis_type)
+                # Draw bar with no rounding
+                svg.append(f'    <rect x="50" y="{y_pos}" width="500" height="{bar_height}" fill="{color}" rx="0" ry="0" />')
+                # Add dashed border with no rounding
+                svg.append(f'    <rect x="50" y="{y_pos}" width="500" height="{bar_height}" fill="none" stroke="rgba(0,0,0,0.3)" stroke-width="1" stroke-dasharray="5,5" rx="0" ry="0" />')
+                # Centered text
+                svg.append(f'    <text x="300" y="{y_pos + bar_height/2 + 1}" class="bar-label" fill="black">{display_name}</text>')
+                y_pos += bar_height
+    
+    # Add arrows on the right with labels
+    arrow_x = 600
+    
+    # Top arrow section (180° rotation - reads bottom to top)
+    if top_height > 0:
+        arrow_top_start = 50
+        arrow_top_end = 50 + top_stack_height
+        arrow_mid = (arrow_top_start + arrow_top_end) / 2
+        
+        # Vertical line
+        svg.append(f'    <line x1="{arrow_x+10}" y1="{arrow_top_start}" x2="{arrow_x+10}" y2="{arrow_top_end}" stroke="#e74c3c" stroke-width="3" />')
+        # Arrow head at top
+        svg.append(f'    <polygon points="{arrow_x+4},{arrow_top_start} {arrow_x+16},{arrow_top_start} {arrow_x+10},{arrow_top_start-14}" fill="#e74c3c" />')
+        
+        # Add text vertically - rotated -90° (reads bottom to top)
+        text_x = arrow_x + 35
+        svg.append(f'''    <g transform="rotate(-90, {text_x}, {arrow_mid})">
+            <text x="{text_x}" y="{arrow_mid}" font-family="Arial" font-size="14" fill="#e74c3c" text-anchor="right" dominant-baseline="middle" font-weight="regular">
+                <tspan x="{text_x}" dy="-0.8em">{top_display}</tspan>
+                <tspan x="{text_x}" dy="1.4em">Increase [{top_height}]</tspan>
+            </text>
+        </g>''')
+
+        # Bottom arrow section (rotate 90° - reads top to bottom)
+        if bottom_height > 0:
+            bottom_start = 50 + top_stack_height + determinant_height
+            bottom_end = bottom_start + bottom_stack_height
+            bottom_mid = (bottom_start + bottom_end) / 2
+            
+            # Vertical line
+            svg.append(f'    <line x1="{arrow_x+10}" y1="{bottom_start}" x2="{arrow_x+10}" y2="{bottom_end}" stroke="#3498db" stroke-width="3" />')
+            # Arrow head at bottom
+            svg.append(f'    <polygon points="{arrow_x+4},{bottom_end} {arrow_x+16},{bottom_end} {arrow_x+10},{bottom_end+14}" fill="#3498db" />')
+            
+            # Add text vertically - rotate 90° (reads top to bottom)
+            text_x = arrow_x + 35
+            svg.append(f'''    <g transform="rotate(-90, {text_x}, {bottom_mid})">
+                <text x="{text_x}" y="{bottom_mid}" font-family="Arial" font-size="14" fill="#3498db" text-anchor="left" dominant-baseline="middle" font-weight="regular">
+                    <tspan x="{text_x}" dy="-0.8em">{bottom_display}</tspan>
+                    <tspan x="{text_x}" dy="1.4em">Decrease [{bottom_height}]</tspan>
+                </text>
+            </g>''')
+    
+    svg.append('</svg>')
+    return '\n'.join(svg)
