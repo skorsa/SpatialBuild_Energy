@@ -147,6 +147,11 @@ def render_location_map(db_connection):
     st.subheader(" Study Locations Map")
     st.caption("Interactive map showing where studies are located. Click on markers for complete study details. Marker colors represent climate zones.")
     
+    # Add search box at the top
+    search_location = st.text_input("🔍 Search for a location", 
+                                   placeholder="Enter city, region, or country to zoom to...",
+                                   key="map_search")
+    
     # Add filter options (simplified - no status filter)
     with st.expander("🔍 Filter Options", expanded=False):
         col1, col2 = st.columns(2)
@@ -178,7 +183,7 @@ def render_location_map(db_connection):
         return
     
     # Create a hash of filter settings to detect changes
-    filter_hash = hash(f"{show_clusters}_{marker_size}_{max_markers}")
+    filter_hash = hash(f"{show_clusters}_{marker_size}_{max_markers}_{search_location}")
 
     if 'last_filter_hash' not in st.session_state:
         st.session_state.last_filter_hash = filter_hash
@@ -186,16 +191,39 @@ def render_location_map(db_connection):
     # Check if filters changed OR if this is the first run
     filters_changed = st.session_state.last_filter_hash != filter_hash
     
-    # Debug
-    # st.sidebar.write(f"🔄 Filters changed: {filters_changed}")
-    # st.sidebar.write(f"🗺️ Map in session: {'map' in st.session_state}")
-
     # Recreate map if filters changed or first run
     if filters_changed or 'map' not in st.session_state:
         st.sidebar.write("🆕 Creating new map...")
         
-        # Create new map
-        m = folium.Map(location=[20, 0], zoom_start=2, tiles='CartoDB positron')
+        # Determine initial map center and zoom based on search
+        if search_location:
+            # Try to find matching location in our data
+            matching_groups = []
+            for group_key, group_data in location_groups.items():
+                for record in group_data['records']:
+                    location = record.get('location', '').lower()
+                    if search_location.lower() in location:
+                        matching_groups.append(group_data)
+                        break
+            
+            if matching_groups:
+                # Center on the first matching location
+                target_coords = matching_groups[0]['coords']
+                initial_location = target_coords
+                initial_zoom = 8  # Zoom in on the location
+                st.success(f"📍 Found {len(matching_groups)} locations matching '{search_location}'")
+            else:
+                # Default to world view
+                initial_location = [20, 0]
+                initial_zoom = 2
+                st.warning(f"No locations found matching '{search_location}'")
+        else:
+            # Default to world view
+            initial_location = [20, 0]
+            initial_zoom = 2
+        
+        # Create new map with dynamic center
+        m = folium.Map(location=initial_location, zoom_start=initial_zoom, tiles='CartoDB positron')
         
         # Add markers (your existing marker code)
         for group_key, group_data in location_groups.items():
@@ -286,20 +314,11 @@ def render_location_map(db_connection):
 
     # Display the map from session state
     if 'map' in st.session_state:
-        #st.sidebar.write("🗺️ Displaying map from session")
         folium_static(st.session_state.map, width=800, height=500)
     else:
         st.info("Loading map...")
         st.sidebar.write("❌ No map in session state")
 
-    # Statistics
-    # st.divider()
-    # col1, col2, col3 = st.columns(3)
-    # col1.metric("📍 Geographic Locations", len(location_groups))
-    # col2.metric("📚 Records on Map", len(location_records))
-    # if location_groups:
-    #     most = max(location_groups.items(), key=lambda x: x[1]['count'])
-    #     col3.metric("🏆 Most Records", f"{most[1]['location']} ({most[1]['count']})")
 
 
     # Count records with no specific location - USING CACHE AS SOURCE OF TRUTH
