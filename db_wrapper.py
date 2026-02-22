@@ -7,6 +7,7 @@ import re
 from functools import lru_cache
 import time
 import bcrypt
+from datetime import datetime
 
 class DatabaseWrapper:
     def __init__(self):
@@ -579,46 +580,42 @@ class DatabaseWrapper:
             """, (limit,))
             return cursor.fetchall()
 
-    def save_analysis(self, user_id, analysis_type, determinant, top_energy, bottom_energy, html):
-        """Save a user's analysis to the database."""
+    def save_analysis(self, user_id, analysis_type, determinant, top_energy, bottom_energy, html, top_sorted=None, bottom_sorted=None, top_height=0, bottom_height=0):
+        """Save a user's analysis to the database"""
         data = {
             'user_id': user_id,
             'analysis_type': analysis_type,
             'determinant': determinant,
             'top_energy': top_energy,
             'bottom_energy': bottom_energy,
-            'html': html
+            'html': html,
+            'top_sorted': top_sorted,
+            'bottom_sorted': bottom_sorted,
+            'top_height': top_height,
+            'bottom_height': bottom_height,
+            'created_at': datetime.now().isoformat()
         }
-        if self.use_supabase:
-            result = self.supabase.table('user_saved_analyses').insert(data).execute()
-            return result.data
-        else:
-            cursor = self.conn.cursor()
-            cursor.execute('''
-                INSERT INTO user_saved_analyses 
-                (user_id, analysis_type, determinant, top_energy, bottom_energy, html)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (user_id, analysis_type, determinant, top_energy, bottom_energy, html))
-            self.conn.commit()
-            return cursor.lastrowid
+        return self.insert_record('user_saved_analyses', data)
 
     def get_user_analyses(self, user_id):
-        """Retrieve all saved analyses for a user."""
+        """Get all analyses saved by a user"""
         if self.use_supabase:
-            result = self.supabase.table('user_saved_analyses') \
+            response = self.supabase.table('user_saved_analyses') \
                 .select('*') \
                 .eq('user_id', user_id) \
                 .order('created_at', desc=True) \
                 .execute()
-            return result.data
+            return response.data
         else:
+            # SQLite version
             cursor = self.conn.cursor()
-            cursor.execute('''
-                SELECT * FROM user_saved_analyses 
-                WHERE user_id = ? 
-                ORDER BY created_at DESC
-            ''', (user_id,))
-            return cursor.fetchall()
+            cursor.execute(
+                "SELECT * FROM user_saved_analyses WHERE user_id = ? ORDER BY created_at DESC",
+                (user_id,)
+            )
+            columns = [description[0] for description in cursor.description]
+            rows = cursor.fetchall()
+            return [dict(zip(columns, row)) for row in rows]
 
     def delete_analysis(self, analysis_id):
         """Delete a specific saved analysis."""
