@@ -316,7 +316,7 @@ def render_location_map(db_connection):
     if 'map' in st.session_state:
         folium_static(st.session_state.map, width=800, height=500)
     else:
-        #st.info("Loading map...")
+        st.info("Loading map...")
         #st.sidebar.write("❌ No map in session state")
 
 
