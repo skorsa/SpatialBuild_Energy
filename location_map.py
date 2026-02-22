@@ -193,7 +193,7 @@ def render_location_map(db_connection):
     
     # Recreate map if filters changed or first run
     if filters_changed or 'map' not in st.session_state:
-        st.sidebar.write("🆕 Creating new map...")
+        #st.sidebar.write("🆕 Creating new map...")
         
         # Determine initial map center and zoom based on search
         if search_location:
@@ -310,14 +310,14 @@ def render_location_map(db_connection):
         st.session_state.map = m
         st.session_state.last_filter_hash = filter_hash
         
-        st.sidebar.write("✅ Map created and stored")
+        # st.sidebar.write("✅ Map created and stored")
 
     # Display the map from session state
     if 'map' in st.session_state:
         folium_static(st.session_state.map, width=800, height=500)
     else:
-        st.info("Loading map...")
-        st.sidebar.write("❌ No map in session state")
+        #st.info("Loading map...")
+        #st.sidebar.write("❌ No map in session state")
 
 
 
