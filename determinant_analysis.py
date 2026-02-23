@@ -513,9 +513,9 @@ def render_frequency_analysis(db_connection):
 
                         st.markdown(f'''
                         <div style="position: relative; height: {top_stack_height}px; margin-bottom: 0; width: 60px;">
-                            <div style="position: absolute; left: 10px; top: {top_stack_height}px; width: 3px; height: {top_stack_height}px; background-color: #e74c3c; transform: translateY(-100%);"></div>
-                            <div style="position: absolute; left: 4px; top: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid #e74c3c;"></div>
-                            <div style="position: absolute; left: 20px; bottom: 0; height: {max(top_stack_height, text_height)}px; display: flex; flex-direction: column; justify-content: flex-start; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); color: #e74c3c; white-space: nowrap;">
+                            <div style="position: absolute; left: 10px; top: {top_stack_height}px; width: 3px; height: {top_stack_height}px; background-color: #777777; transform: translateY(-100%);"></div>
+                            <div style="position: absolute; left: 4px; top: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid #777777;"></div>
+                            <div style="position: absolute; left: 20px; bottom: 0; height: {max(top_stack_height, text_height)}px; display: flex; flex-direction: column; justify-content: flex-start; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); color: #777777; white-space: nowrap;">
                                 <div style="margin: 0;">{energy_name}</div>
                                 <div style="margin-bottom: auto; opacity: 0.9;">Increase [{increase_count}]</div>
                             </div>
@@ -541,9 +541,9 @@ def render_frequency_analysis(db_connection):
                                             
                         st.markdown(f'''
                         <div style="position: relative; height: {bottom_stack_height}px; margin-top: 0; width: 60px;">
-                            <div style="position: absolute; left: 10px; top: 0; width: 3px; height: {bottom_stack_height}px; background-color: #3498db;"></div>
-                            <div style="position: absolute; left: 4px; bottom: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-top: 14px solid #3498db;"></div>
-                            <div style="position: absolute; left: 20px; top: 0; height: {max(bottom_stack_height, text_height)}px; display: flex; flex-direction: column; justify-content: flex-start; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); color: #3498db; white-space: nowrap;">
+                            <div style="position: absolute; left: 10px; top: 0; width: 3px; height: {bottom_stack_height}px; background-color: #777777;"></div>
+                            <div style="position: absolute; left: 4px; bottom: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-top: 14px solid #777777;"></div>
+                            <div style="position: absolute; left: 20px; top: 0; height: {max(bottom_stack_height, text_height)}px; display: flex; flex-direction: column; justify-content: flex-start; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); color: #777777; white-space: nowrap;">
                                 <div style="margin-top: auto;">{energy_name}</div>
                                 <div style="margin-top: auto; opacity: 0.9;">Decrease [{decrease_count}]</div>
                             </div>
@@ -621,9 +621,9 @@ def render_frequency_analysis(db_connection):
 
                             visual_html.append(f'''
                             <div style="position: relative; height: {top_stack_height}px; width: 60px; margin-bottom: 0;">
-                                <div style="position: absolute; left: 10px; top: {top_stack_height}px; width: 3px; height: {top_stack_height}px; background-color: #e74c3c; transform: translateY(-100%);"></div>
-                                <div style="position: absolute; left: 4px; top: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid #e74c3c;"></div>
-                                <div style="position: absolute; left: 20px; bottom: 0; height: {max(top_stack_height, text_height_top)}px; display: flex; flex-direction: column; justify-content: flex-start; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); color: #e74c3c; white-space: nowrap; line-height: 1.2;">
+                                <div style="position: absolute; left: 10px; top: {top_stack_height}px; width: 3px; height: {top_stack_height}px; background-color: #777777; transform: translateY(-100%);"></div>
+                                <div style="position: absolute; left: 4px; top: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid #777777;"></div>
+                                <div style="position: absolute; left: 20px; bottom: 0; height: {max(top_stack_height, text_height_top)}px; display: flex; flex-direction: column; justify-content: flex-start; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); color: #777777; white-space: nowrap; line-height: 1.2;">
                                     <div style="margin: 0;">{energy_name_top}</div>
                                     <div style="margin-bottom: auto; opacity: 0.9;">Increase [{increase_count}]</div>
                                 </div>
@@ -649,9 +649,9 @@ def render_frequency_analysis(db_connection):
                                                 
                             visual_html.append(f'''
                             <div style="position: relative; height: {bottom_stack_height}px; width: 60px; margin-top: 0;">
-                                <div style="position: absolute; left: 10px; top: 0; width: 3px; height: {bottom_stack_height}px; background-color: #3498db;"></div>
-                                <div style="position: absolute; left: 4px; bottom: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-top: 14px solid #3498db;"></div>
-                                <div style="position: absolute; left: 20px; top: 0; height: {max(bottom_stack_height, text_length_bottom * 11)}px; display: flex; flex-direction: column; justify-content: flex-start; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); color: #3498db; white-space: nowrap; line-height: 1.2;">
+                                <div style="position: absolute; left: 10px; top: 0; width: 3px; height: {bottom_stack_height}px; background-color: #777777;"></div>
+                                <div style="position: absolute; left: 4px; bottom: 0; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-top: 14px solid #777777;"></div>
+                                <div style="position: absolute; left: 20px; top: 0; height: {max(bottom_stack_height, text_length_bottom * 11)}px; display: flex; flex-direction: column; justify-content: flex-start; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); color: #777777; white-space: nowrap; line-height: 1.2;">
                                     <div style="margin-top: auto;">{energy_name_bottom}</div>
                                     <div style="margin-top: auto; opacity: 0.9;">Decrease [{decrease_count}]</div>
                                 </div>
@@ -859,6 +859,152 @@ def render_frequency_analysis(db_connection):
                 st.divider()
                 st.markdown('<div style="margin-top: 30px;"></div>', unsafe_allow_html=True)
 
+def get_optimal_dash_pattern(width, height):
+    """Calculate a dash pattern that fits perfectly around a rectangle"""
+    # Perimeter = 2*(width + height)
+    perimeter = 2 * (width + height)
+    
+    # We want a pattern that divides evenly into the perimeter
+    # Target dash length: 5-8px is visually appealing
+    target_dash = 6
+    target_gap = 4
+    
+    # Try to find a pattern that divides evenly
+    for dash in range(5, 9):
+        for gap in range(3, 6):
+            pattern_length = dash + gap
+            # Check if pattern divides evenly into perimeter
+            if perimeter % pattern_length == 0:
+                return f"{dash},{gap}"
+    
+    # Fallback to a pattern that's close
+    return "5,3"
+
+
+def generate_analysis_svg(determinant, analysis_type, top_sorted, bottom_sorted, top_height, bottom_height, selected_top, selected_bottom):
+    """Generate SVG version of the analysis chart matching HTML display"""
+    
+    # Calculate dimensions - handle empty sides
+    bar_height = 28
+    determinant_height = 36
+    top_stack_height = top_height * bar_height if top_height > 0 else 0
+    bottom_stack_height = bottom_height * bar_height if bottom_height > 0 else 0
+    
+    # Add generous padding for long text labels (60px top and bottom)
+    top_padding = 60
+    bottom_padding = 60
+    
+    # If both sides are empty, add minimal height
+    if top_stack_height == 0 and bottom_stack_height == 0:
+        total_height = determinant_height + top_padding + bottom_padding + 40
+    else:
+        total_height = top_stack_height + determinant_height + bottom_stack_height + top_padding + bottom_padding + 40
+    
+    # Get the display names for energy outputs
+    if selected_top and selected_top != "-- Choose energy output --" and "ALL ENERGY OUTPUTS (INCREASE)" in selected_top:
+        top_display = "All Increase"
+    elif selected_top and selected_top != "-- Choose energy output --":
+        top_display = selected_top.split(" [")[0]
+    else:
+        top_display = None
+    
+    if selected_bottom and selected_bottom != "-- Choose energy output --" and "ALL ENERGY OUTPUTS (DECREASE)" in selected_bottom:
+        bottom_display = "All Decrease"
+    elif selected_bottom and selected_bottom != "-- Choose energy output --":
+        bottom_display = selected_bottom.split(" [")[0]
+    else:
+        bottom_display = None
+    
+    svg = [f'''<?xml version="1.0" encoding="UTF-8"?>
+<svg width="800" height="{total_height}" xmlns="http://www.w3.org/2000/svg">
+    <style>
+        .bar-label {{ font-family: Arial; font-size: 12px; text-anchor: middle; dominant-baseline: middle; }}
+        .display-box {{ font-family: Arial; font-size: 13px; font-weight: bold; text-anchor: middle; dominant-baseline: middle; }}
+        .arrow-text {{ font-family: Arial; font-size: 14px; fill: white; font-weight: bold; }}
+    </style>
+''']
+    
+    y_pos = top_padding  # Start with top padding
+    
+    # Calculate a consistent dash pattern for all rectangles
+    # We need the pattern to start and end at the top and bottom corners
+    # Using a pattern that's a multiple of the bar height ensures vertical alignment
+    base_pattern = 8  # 8px pattern (4 dash, 4 gap works well)
+    dash = 4
+    gap = 4
+    pattern = f"{dash},{gap}"
+    
+    # Top bars - only if there are items
+    if top_sorted:
+        for display_name, count in top_sorted:
+            for i in range(count):
+                color = get_item_color(display_name, analysis_type)
+                # Single rectangle with both fill and stroke
+                # stroke-dashoffset is set to half the pattern to ensure dashes start at corners
+                svg.append(f'    <rect x="50" y="{y_pos}" width="300" height="{bar_height}" fill="{color}" stroke="#888888" stroke-width="1" stroke-dasharray="{pattern}" stroke-dashoffset="0" rx="0" ry="0" />')
+                # Determine text color based on background
+                text_color = "white" if color in ['#105e8d', '#2470a0', '#3882b3', '#4c94c6', '#FF4444', '#44AA44', '#4444FF'] else "black"
+                svg.append(f'    <text x="200" y="{y_pos + bar_height/2 + 1}" class="bar-label" fill="{text_color}">{display_name}</text>')
+                y_pos += bar_height
+    
+    # Determinant box - REDUCED LINE THICKNESS
+    svg.append(f'    <rect x="50" y="{y_pos}" width="300" height="{determinant_height}" fill="#f0f2f6" stroke="black" stroke-width="1" rx="0" ry="0" />')
+    svg.append(f'    <text x="200" y="{y_pos + determinant_height/2 + 1}" class="display-box" fill="black">{determinant}</text>')
+    y_pos += determinant_height
+    
+    # Bottom bars - only if there are items
+    if bottom_sorted:
+        for display_name, count in bottom_sorted:
+            for i in range(count):
+                color = get_item_color(display_name, analysis_type)
+                # Single rectangle with both fill and stroke
+                # Use the same pattern as top bars for perfect vertical alignment
+                svg.append(f'    <rect x="50" y="{y_pos}" width="300" height="{bar_height}" fill="{color}" stroke="#888888" stroke-width="1" stroke-dasharray="{pattern}" stroke-dashoffset="0" rx="0" ry="0" />')
+                # Determine text color based on background
+                text_color = "white" if color in ['#105e8d', '#2470a0', '#3882b3', '#4c94c6', '#FF4444', '#44AA44', '#4444FF'] else "black"
+                svg.append(f'    <text x="200" y="{y_pos + bar_height/2 + 1}" class="bar-label" fill="{text_color}">{display_name}</text>')
+                y_pos += bar_height
+    
+    # Add arrows on the right with labels
+    arrow_x = 375
+    
+    # Top arrow section - rotated -90° (reads bottom to top)
+    if top_height > 0 and top_display:
+        arrow_top_start = top_padding
+        arrow_top_end = top_padding + top_stack_height
+        
+        svg.append(f'    <line x1="{arrow_x+10}" y1="{arrow_top_start}" x2="{arrow_x+10}" y2="{arrow_top_end}" stroke="#777777" stroke-width="3" />')
+        svg.append(f'    <polygon points="{arrow_x+4},{arrow_top_start} {arrow_x+16},{arrow_top_start} {arrow_x+10},{arrow_top_start-14}" fill="#777777" />')
+        
+        text_x = arrow_x + 35
+        text_y = arrow_top_end - 10  # Position near the bottom of the arrow stack
+        svg.append(f'''    <g transform="rotate(-90, {text_x}, {text_y})">
+            <text x="{text_x}" y="{text_y}" font-family="Arial" font-size="14" fill="#777777" text-anchor="left" dominant-baseline="bottom" font-weight="normal">
+                <tspan x="{text_x}" dy="0em">{top_display}</tspan>
+                <tspan x="{text_x}" dy="1.4em">Increase [{top_height}]</tspan>
+            </text>
+        </g>''')
+    
+    # Bottom arrow section - rotated -90° (reads bottom to top, right side of text aligns with top of arrow)
+    if bottom_height > 0 and bottom_display:
+        bottom_start = top_padding + top_stack_height + determinant_height
+        bottom_end = bottom_start + bottom_stack_height
+        
+        svg.append(f'    <line x1="{arrow_x+10}" y1="{bottom_start}" x2="{arrow_x+10}" y2="{bottom_end}" stroke="#777777" stroke-width="3" />')
+        svg.append(f'    <polygon points="{arrow_x+4},{bottom_end} {arrow_x+16},{bottom_end} {arrow_x+10},{bottom_end+14}" fill="#777777" />')
+        
+        text_x = arrow_x + 35
+        text_y = bottom_start  # Align with top of arrow stack
+        svg.append(f'''    <g transform="rotate(-90, {text_x}, {text_y})">
+            <text x="{text_x}" y="{text_y}" font-family="Arial" font-size="14" fill="#777777" text-anchor="end" dominant-baseline="bottom" font-weight="normal">
+                <tspan x="{text_x}" dy="0em">{bottom_display}</tspan>
+                <tspan x="{text_x}" dy="1.4em">Decrease [{bottom_height}]</tspan>
+            </text>
+        </g>''')
+    
+    svg.append('</svg>')
+    return '\n'.join(svg)
+
 
 def convert_html_to_svg(html_content, determinant, analysis_type):
     """Convert HTML chart to SVG format"""
@@ -898,6 +1044,11 @@ def convert_html_to_svg(html_content, determinant, analysis_type):
     
     total_height = top_stack_height + determinant_height + bottom_stack_height + top_padding + bottom_padding + 40
     
+    # Use a consistent dash pattern for all rectangles
+    dash = 4
+    gap = 4
+    pattern = f"{dash},{gap}"
+    
     # Start building SVG
     svg = [f'''<?xml version="1.0" encoding="UTF-8"?>
 <svg width="800" height="{total_height}" xmlns="http://www.w3.org/2000/svg">
@@ -919,155 +1070,40 @@ def convert_html_to_svg(html_content, determinant, analysis_type):
         if in_top:
             # Clean color string
             color = color.strip()
-            svg.append(f'    <rect x="50" y="{y_pos}" width="500" height="{bar_height}" fill="{color}" rx="0" ry="0" />')
-            svg.append(f'    <rect x="50" y="{y_pos}" width="500" height="{bar_height}" fill="none" stroke="rgba(0,0,0,0.3)" stroke-width="1" stroke-dasharray="5,5" rx="0" ry="0" />')
+            # Single rectangle with both fill and stroke
+            svg.append(f'    <rect x="50" y="{y_pos}" width="300" height="{bar_height}" fill="{color}" stroke="#888888" stroke-width="1" stroke-dasharray="{pattern}" stroke-dashoffset="0" rx="0" ry="0" />')
             # Determine text color based on background
             text_color = "white" if color in ['#105e8d', '#2470a0', '#3882b3', '#4c94c6', '#FF4444', '#44AA44', '#4444FF'] else "black"
-            svg.append(f'    <text x="300" y="{y_pos + bar_height/2 + 1}" class="bar-label" fill="{text_color}">{text.strip()}</text>')
+            svg.append(f'    <text x="200" y="{y_pos + bar_height/2 + 1}" class="bar-label" fill="{text_color}">{text.strip()}</text>')
             y_pos += bar_height
     
     # Add determinant box - REDUCED LINE THICKNESS
     if determinant_text:
-        svg.append(f'    <rect x="50" y="{y_pos}" width="500" height="{determinant_height}" fill="#f0f2f6" stroke="black" stroke-width="1" rx="0" ry="0" />')
-        svg.append(f'    <text x="300" y="{y_pos + determinant_height/2 + 1}" class="display-box" fill="black">{determinant_text[0].strip()}</text>')
+        svg.append(f'    <rect x="50" y="{y_pos}" width="300" height="{determinant_height}" fill="#f0f2f6" stroke="black" stroke-width="1" rx="0" ry="0" />')
+        svg.append(f'    <text x="200" y="{y_pos + determinant_height/2 + 1}" class="display-box" fill="black">{determinant_text[0].strip()}</text>')
         y_pos += determinant_height
     
     # Add bottom bars
     for color, text in boxes:
         if text.strip() != determinant_text[0] if determinant_text else "":
             color = color.strip()
-            svg.append(f'    <rect x="50" y="{y_pos}" width="500" height="{bar_height}" fill="{color}" rx="0" ry="0" />')
-            svg.append(f'    <rect x="50" y="{y_pos}" width="500" height="{bar_height}" fill="none" stroke="rgba(0,0,0,0.3)" stroke-width="1" stroke-dasharray="5,5" rx="0" ry="0" />')
+            # Single rectangle with both fill and stroke - same pattern for perfect alignment
+            svg.append(f'    <rect x="50" y="{y_pos}" width="300" height="{bar_height}" fill="{color}" stroke="#888888" stroke-width="1" stroke-dasharray="{pattern}" stroke-dashoffset="0" rx="0" ry="0" />')
             text_color = "white" if color in ['#105e8d', '#2470a0', '#3882b3', '#4c94c6', '#FF4444', '#44AA44', '#4444FF'] else "black"
-            svg.append(f'    <text x="300" y="{y_pos + bar_height/2 + 1}" class="bar-label" fill="{text_color}">{text.strip()}</text>')
+            svg.append(f'    <text x="200" y="{y_pos + bar_height/2 + 1}" class="bar-label" fill="{text_color}">{text.strip()}</text>')
             y_pos += bar_height
     
     # Add arrows
     arrow_x = 600
     
     if top_stack_height > 0:
-        svg.append(f'    <line x1="{arrow_x+10}" y1="{top_padding}" x2="{arrow_x+10}" y2="{top_padding + top_stack_height}" stroke="#e74c3c" stroke-width="3" />')
-        svg.append(f'    <polygon points="{arrow_x+4},{top_padding} {arrow_x+16},{top_padding} {arrow_x+10},{top_padding-14}" fill="#e74c3c" />')
+        svg.append(f'    <line x1="{arrow_x+10}" y1="{top_padding}" x2="{arrow_x+10}" y2="{top_padding + top_stack_height}" stroke="#777777" stroke-width="3" />')
+        svg.append(f'    <polygon points="{arrow_x+4},{top_padding} {arrow_x+16},{top_padding} {arrow_x+10},{top_padding-14}" fill="#777777" />')
     
     if bottom_stack_height > 0:
         bottom_start = top_padding + top_stack_height + determinant_height
-        svg.append(f'    <line x1="{arrow_x+10}" y1="{bottom_start}" x2="{arrow_x+10}" y2="{bottom_start + bottom_stack_height}" stroke="#3498db" stroke-width="3" />')
-        svg.append(f'    <polygon points="{arrow_x+4},{bottom_start + bottom_stack_height} {arrow_x+16},{bottom_start + bottom_stack_height} {arrow_x+10},{bottom_start + bottom_stack_height+14}" fill="#3498db" />')
-    
-    svg.append('</svg>')
-    return '\n'.join(svg)
-
-
-def generate_analysis_svg(determinant, analysis_type, top_sorted, bottom_sorted, top_height, bottom_height, selected_top, selected_bottom):
-    """Generate SVG version of the analysis chart matching HTML display"""
-    
-    # Calculate dimensions - handle empty sides
-    bar_height = 28
-    determinant_height = 36
-    top_stack_height = top_height * bar_height if top_height > 0 else 0
-    bottom_stack_height = bottom_height * bar_height if bottom_height > 0 else 0
-    
-    # Add generous padding for long text labels (60px top and bottom)
-    top_padding = 120
-    bottom_padding = 120
-    
-    # If both sides are empty, add minimal height
-    if top_stack_height == 0 and bottom_stack_height == 0:
-        total_height = determinant_height + top_padding + bottom_padding + 40
-    else:
-        total_height = top_stack_height + determinant_height + bottom_stack_height + top_padding + bottom_padding + 40
-    
-    # Get the display names for energy outputs
-    if selected_top and selected_top != "-- Choose energy output --" and "ALL ENERGY OUTPUTS (INCREASE)" in selected_top:
-        top_display = "All Increase"
-    elif selected_top and selected_top != "-- Choose energy output --":
-        top_display = selected_top.split(" [")[0]
-    else:
-        top_display = None
-    
-    if selected_bottom and selected_bottom != "-- Choose energy output --" and "ALL ENERGY OUTPUTS (DECREASE)" in selected_bottom:
-        bottom_display = "All Decrease"
-    elif selected_bottom and selected_bottom != "-- Choose energy output --":
-        bottom_display = selected_bottom.split(" [")[0]
-    else:
-        bottom_display = None
-    
-    svg = [f'''<?xml version="1.0" encoding="UTF-8"?>
-<svg width="800" height="{total_height}" xmlns="http://www.w3.org/2000/svg">
-    <style>
-        .bar-label {{ font-family: Arial; font-size: 12px; text-anchor: middle; dominant-baseline: middle; }}
-        .display-box {{ font-family: Arial; font-size: 13px; font-weight: bold; text-anchor: middle; dominant-baseline: middle; }}
-        .arrow-text {{ font-family: Arial; font-size: 14px; fill: white; font-weight: bold; }}
-    </style>
-''']
-    
-    y_pos = top_padding  # Start with top padding
-    
-    # Top bars - only if there are items
-    if top_sorted:
-        for display_name, count in top_sorted:
-            for i in range(count):
-                color = get_item_color(display_name, analysis_type)
-                svg.append(f'    <rect x="50" y="{y_pos}" width="500" height="{bar_height}" fill="{color}" rx="0" ry="0" />')
-                svg.append(f'    <rect x="50" y="{y_pos}" width="500" height="{bar_height}" fill="none" stroke="rgba(0,0,0,0.3)" stroke-width="1" stroke-dasharray="5,5" rx="0" ry="0" />')
-                # Determine text color based on background
-                text_color = "white" if color in ['#105e8d', '#2470a0', '#3882b3', '#4c94c6', '#FF4444', '#44AA44', '#4444FF'] else "black"
-                svg.append(f'    <text x="300" y="{y_pos + bar_height/2 + 1}" class="bar-label" fill="{text_color}">{display_name}</text>')
-                y_pos += bar_height
-    
-    # Determinant box - REDUCED LINE THICKNESS
-    svg.append(f'    <rect x="50" y="{y_pos}" width="500" height="{determinant_height}" fill="#f0f2f6" stroke="black" stroke-width="1" rx="0" ry="0" />')
-    svg.append(f'    <text x="300" y="{y_pos + determinant_height/2 + 1}" class="display-box" fill="black">{determinant}</text>')
-    y_pos += determinant_height
-    
-    # Bottom bars - only if there are items
-    if bottom_sorted:
-        for display_name, count in bottom_sorted:
-            for i in range(count):
-                color = get_item_color(display_name, analysis_type)
-                svg.append(f'    <rect x="50" y="{y_pos}" width="500" height="{bar_height}" fill="{color}" rx="0" ry="0" />')
-                svg.append(f'    <rect x="50" y="{y_pos}" width="500" height="{bar_height}" fill="none" stroke="rgba(0,0,0,0.3)" stroke-width="1" stroke-dasharray="5,5" rx="0" ry="0" />')
-                # Determine text color based on background
-                text_color = "white" if color in ['#105e8d', '#2470a0', '#3882b3', '#4c94c6', '#FF4444', '#44AA44', '#4444FF'] else "black"
-                svg.append(f'    <text x="300" y="{y_pos + bar_height/2 + 1}" class="bar-label" fill="{text_color}">{display_name}</text>')
-                y_pos += bar_height
-    
-    # Add arrows on the right with labels
-    arrow_x = 600
-    
-    # Top arrow section - rotated -90° (reads bottom to top)
-    if top_height > 0 and top_display:
-        arrow_top_start = top_padding
-        arrow_top_end = top_padding + top_stack_height
-        
-        svg.append(f'    <line x1="{arrow_x+10}" y1="{arrow_top_start}" x2="{arrow_x+10}" y2="{arrow_top_end}" stroke="#e74c3c" stroke-width="3" />')
-        svg.append(f'    <polygon points="{arrow_x+4},{arrow_top_start} {arrow_x+16},{arrow_top_start} {arrow_x+10},{arrow_top_start-14}" fill="#e74c3c" />')
-        
-        text_x = arrow_x + 35
-        text_y = arrow_top_end - 10  # Position near the bottom of the arrow stack
-        svg.append(f'''    <g transform="rotate(-90, {text_x}, {text_y})">
-            <text x="{text_x}" y="{text_y}" font-family="Arial" font-size="14" fill="#e74c3c" text-anchor="left" dominant-baseline="bottom" font-weight="normal">
-                <tspan x="{text_x}" dy="0em">{top_display}</tspan>
-                <tspan x="{text_x}" dy="1.4em">Increase [{top_height}]</tspan>
-            </text>
-        </g>''')
-    
-    # Bottom arrow section - rotated -90° (reads bottom to top, right side of text aligns with top of arrow)
-    if bottom_height > 0 and bottom_display:
-        bottom_start = top_padding + top_stack_height + determinant_height
-        bottom_end = bottom_start + bottom_stack_height
-        
-        svg.append(f'    <line x1="{arrow_x+10}" y1="{bottom_start}" x2="{arrow_x+10}" y2="{bottom_end}" stroke="#3498db" stroke-width="3" />')
-        svg.append(f'    <polygon points="{arrow_x+4},{bottom_end} {arrow_x+16},{bottom_end} {arrow_x+10},{bottom_end+14}" fill="#3498db" />')
-        
-        text_x = arrow_x + 35
-        text_y = bottom_start  # Align with top of arrow stack
-        svg.append(f'''    <g transform="rotate(-90, {text_x}, {text_y})">
-            <text x="{text_x}" y="{text_y}" font-family="Arial" font-size="14" fill="#3498db" text-anchor="end" dominant-baseline="bottom" font-weight="normal">
-                <tspan x="{text_x}" dy="0em">{bottom_display}</tspan>
-                <tspan x="{text_x}" dy="1.4em">Decrease [{bottom_height}]</tspan>
-            </text>
-        </g>''')
+        svg.append(f'    <line x1="{arrow_x+10}" y1="{bottom_start}" x2="{arrow_x+10}" y2="{bottom_start + bottom_stack_height}" stroke="#777777" stroke-width="3" />')
+        svg.append(f'    <polygon points="{arrow_x+4},{bottom_start + bottom_stack_height} {arrow_x+16},{bottom_start + bottom_stack_height} {arrow_x+10},{bottom_start + bottom_stack_height+14}" fill="#777777" />')
     
     svg.append('</svg>')
     return '\n'.join(svg)
