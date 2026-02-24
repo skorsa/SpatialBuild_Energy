@@ -845,6 +845,7 @@ def render_frequency_analysis(db_connection):
                     st.session_state[f"show_download_{i}"] = True
                     st.rerun()
             
+
             with colB:
                 # Show download button if this analysis is in download mode
                 if st.session_state.get(f"show_download_{i}", False) and st.session_state.get(f"download_data_{i}"):
