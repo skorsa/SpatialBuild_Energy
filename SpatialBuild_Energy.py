@@ -32,7 +32,7 @@ load_dotenv()
 st.set_page_config(
     page_title="SpatialBuild Energy",
     page_icon="🏢",
-    layout="wide",
+    #layout="wide",
     initial_sidebar_state="expanded"
 )
 
@@ -2107,12 +2107,6 @@ def render_clean_distribution_bars(counts, descriptions, color_func, show_code=F
             
             svg_content.append('</svg>')
             
-            # Create download button
-            import base64
-            svg_string = '\n'.join(svg_content)
-            b64 = base64.b64encode(svg_string.encode()).decode()
-            href = f'<a href="data:image/svg+xml;base64,{b64}" download="chart.svg">📥 Click to save SVG</a>'
-            st.markdown(href, unsafe_allow_html=True)
     
     for item, count in sorted_items:
         # Get description if available

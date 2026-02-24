@@ -697,13 +697,6 @@ def render_frequency_analysis(db_connection):
                             'analysis_type': analysis_type
                         }
                         
-                        # # DEBUG: Print what we're saving
-                        # st.write("🔍 DEBUG - Saving analysis with data:")
-                        # st.write(f"top_sorted exists: {bool(top_sorted)}")
-                        # st.write(f"bottom_sorted exists: {bool(bottom_sorted)}")
-                        # st.write(f"top_height: {top_height}")
-                        # st.write(f"bottom_height: {bottom_height}")
-                        # st.write(f"analysis_type: {analysis_type}")
                         
                         # Use a unique key approach to avoid duplication
                         if 'saved_visuals' not in st.session_state:
@@ -750,25 +743,39 @@ def render_frequency_analysis(db_connection):
                 filename = f"{selected_determinant}_{analysis_type.strip()}_Analysis.svg".replace(' ', '_')
                 
                 st.markdown(f'''
-                <div style="padding: 10px; background-color: #f0f2f6; border-radius: 5px; margin: 10px 0;">
+                <div style="margin: 10px 0;">
                     <a href="data:image/svg+xml;base64,{b64}" download="{filename}" 
-                       style="background-color: #4CAF50; color: white; padding: 12px 16px; 
-                              text-decoration: none; border-radius: 4px; display: block; 
-                              text-align: center; font-size: 14px; width: 100%; box-sizing: border-box;">
-                        📥 Click to save {filename}
+                    style="
+                            background-color: #FFFFFF;
+                            color: #31333F;
+                            padding: 0.5rem 1rem;
+                            border: 1px solid #D5DAE0;
+                            border-radius: 0.5rem;
+                            font-family: 'Source Sans Pro', sans-serif;
+                            font-size: 1rem;
+                            font-weight: 400;
+                            text-decoration: none;
+                            display: inline-block;
+                            cursor: pointer;
+                            transition: all 0.2s;
+                            box-shadow: rgba(0,0,0,0.05) 0px 1px 2px 0px;
+                    "
+                    onmouseover="this.style.backgroundColor='#F0F2F6'"
+                    onmouseout="this.style.backgroundColor='#FFFFFF'">
+                        📥 Download Chart
                     </a>
                 </div>
                 ''', unsafe_allow_html=True)
              
 
-    # ANALYSIS SUITE SECTION
+     # ANALYSIS SUITE SECTION
     if st.session_state.saved_visuals:
         st.markdown('<div class="analysis-suite-header"></div>', unsafe_allow_html=True)
-        st.subheader("Your Analysis Collection")
         
-        # Clear All button only (removed Export All)
-        col_clear, _ = st.columns([1, 5])
-        
+        # Header row with title and Clear All button
+        col_Subheader, col_clear = st.columns([5, 1])
+        with col_Subheader:        
+            st.subheader("Your Analysis Collection")
         with col_clear:
             if st.button("🗑️ Clear All", key="clear_all_suite", use_container_width=True):
                 # Delete all from database first
@@ -781,38 +788,38 @@ def render_frequency_analysis(db_connection):
                 # Clear session state
                 st.session_state.saved_visuals = []
                 st.rerun()
+        st.divider()
         
         # Display each saved visual with generous spacing
         for i, visual in enumerate(st.session_state.saved_visuals):
-            # Add top spacing for all but first item
-            if i > 0:
-                st.markdown('<div style="margin-top: 40px;"></div>', unsafe_allow_html=True)
+            # Track download state for this analysis
+            if f"show_download_{i}" not in st.session_state:
+                st.session_state[f"show_download_{i}"] = False
+            if f"download_data_{i}" not in st.session_state:
+                st.session_state[f"download_data_{i}"] = None
             
-            # First row: Controls and Export SVG button
-            colA, colB, colC, colD = st.columns([1, 1.5, 1.5, 2])
+            # Analysis title
+            st.markdown(f"**Analysis {i+1}:** {visual['determinant']} - {visual['type'].strip()}")
+            
+            # Small spacing before chart
+            st.markdown('<div style="margin-top: 10px;"></div>', unsafe_allow_html=True)
+            
+            # Chart with specified proportions
+            chart_spacer1, chart_main, chart_spacer2 = st.columns([1, 1.25, 1])
+            with chart_main:
+                st.markdown(visual['html'], unsafe_allow_html=True)
+            
+            #st.divider()
+            st.markdown('<div style="height: 80px;"></div>', unsafe_allow_html=True)
+
+            # Button row below chart
+            colA, colB, colC = st.columns([1, 1, 1])
             
             with colA:
-                if st.button(f"❌ Remove", key=f"remove_saved_{i}", use_container_width=True):
-                    # Delete from database
-                    try:
-                        db_connection.delete_analysis(visual['id'])
-                    except:
-                        pass
-                    # Remove from session state
-                    st.session_state.saved_visuals.pop(i)
-                    st.rerun()
-            
-            with colB:
-                st.markdown(f"**Analysis {i+1}:**")
-            
-            with colC:
-                st.markdown(f"{visual['determinant']} - {visual['type'].strip()}")
-            
-            with colD:
+                
                 if st.button(f"📥 Export SVG", key=f"export_saved_svg_{i}", use_container_width=True):
-                    # Check if we have stored raw data (new saves)
+                    # Generate SVG content
                     if all(k in visual for k in ['top_sorted', 'bottom_sorted', 'top_height', 'bottom_height']) and 'type' in visual:
-                        # Use the stored data to generate perfect SVG
                         svg_content = generate_analysis_svg(
                             determinant=visual['determinant'],
                             analysis_type=visual['type'],
@@ -824,40 +831,69 @@ def render_frequency_analysis(db_connection):
                             selected_bottom=visual['bottom_energy']
                         )
                     else:
-                        # For old saved items, use the HTML conversion
                         svg_content = convert_html_to_svg(visual['html'], visual['determinant'], visual['type'])
-                    
-                    # Download individual SVG with visible link
+
+                    # Prepare download data
                     b64 = base64.b64encode(svg_content.encode()).decode()
                     filename = f"Analysis_{i+1}_{visual['determinant']}.svg".replace(' ', '_')
                     
+                    # Store in session state
+                    st.session_state[f"download_data_{i}"] = {
+                        'b64': b64,
+                        'filename': filename
+                    }
+                    st.session_state[f"show_download_{i}"] = True
+                    st.rerun()
+            
+            with colB:
+                # Show download button if this analysis is in download mode
+                if st.session_state.get(f"show_download_{i}", False) and st.session_state.get(f"download_data_{i}"):
+                    data = st.session_state[f"download_data_{i}"]
                     st.markdown(f'''
-                    <div style="padding: 10px; background-color: #f0f2f6; border-radius: 5px; margin: 10px 0;">
-                        <a href="data:image/svg+xml;base64,{b64}" download="{filename}" 
-                           style="background-color: #4CAF50; color: white; padding: 12px 16px; 
-                                  text-decoration: none; border-radius: 4px; display: block; 
-                                  text-align: center; font-size: 14px; width: 100%; box-sizing: border-box;">
-                            📥 Click to save {filename}
+                    <div style="margin: 0;">
+                        <a href="data:image/svg+xml;base64,{data['b64']}" download="{data['filename']}" 
+                           style="
+                                background-color: #FFFFFF;
+                                color: #31333F;
+                                padding: 0.5rem 1rem;
+                                border: 1px solid #D5DAE0;
+                                border-radius: 0.5rem;
+                                font-family: 'Source Sans Pro', sans-serif;
+                                font-size: 1rem;
+                                font-weight: 400;
+                                text-decoration: none;
+                                display: inline-block;
+                                cursor: pointer;
+                                transition: all 0.2s;
+                                box-shadow: rgba(0,0,0,0.05) 0px 1px 2px 0px;
+                                width: 100%;
+                                text-align: center;
+                                box-sizing: border-box;
+                           "
+                           onmouseover="this.style.backgroundColor='#F0F2F6'"
+                           onmouseout="this.style.backgroundColor='#FFFFFF'">
+                            📥 Download
                         </a>
                     </div>
                     ''', unsafe_allow_html=True)
+                else:
+                    # Placeholder to maintain spacing
+                    st.markdown('<div style="height: 38px;"></div>', unsafe_allow_html=True)
             
-            # Add small spacing before chart
-            st.markdown('<div style="margin-top: 10px;"></div>', unsafe_allow_html=True)
+            with colC:
+                if st.button(f"❌ Remove", key=f"remove_saved_{i}", use_container_width=True):
+                    # Delete from database
+                    try:
+                        db_connection.delete_analysis(visual['id'])
+                    except:
+                        pass
+                    # Remove from session state
+                    st.session_state.saved_visuals.pop(i)
+                    st.rerun()
             
-            # Chart with specified proportions
-            chart_spacer1, chart_main, chart_spacer2 = st.columns([1, 1.25, 1])
-            
-            with chart_main:
-                st.markdown(visual['html'], unsafe_allow_html=True)
-            
-            # Add extra bottom spacing to prevent clash with next item
-            st.markdown('<div style="margin-bottom: 120px;"></div>', unsafe_allow_html=True)
-            
-            # Divider with extra spacing
-            if i < len(st.session_state.saved_visuals) - 1:
-                st.divider()
-                st.markdown('<div style="margin-top: 30px;"></div>', unsafe_allow_html=True)
+            # Extra bottom spacing
+            #st.markdown('<div style="margin-bottom: 0px;"></div>', unsafe_allow_html=True)
+            st.divider()  
 
 def get_optimal_dash_pattern(width, height):
     """Calculate a dash pattern that fits perfectly around a rectangle"""
