@@ -403,21 +403,30 @@ def render_frequency_analysis(db_connection):
             }
             .frequency-box {
                 width: 100%;
-                height: 28px;
+                min-height: 28px;
+                height: auto;
+                place-items: center;        /* Centers both horizontally and vertically */
                 margin: 0;
-                padding: 0 3px;
-                border: 1px dashed rgba(0,0,0,0.3);
-                display: flex;
-                align-items: center;
-                justify-content: center;
+                text-align: center;
+                width: 100%;
                 color: black;
                 font-size: 12px;
                 font-weight: plain;
+                word-wrap: break-word;
+                hyphens: auto;
+                line-height: 1.3;
+                padding: 4px 3px;
+                border: 1px dashed rgba(0,0,0,0.3);
+                background-color: {color};
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
                 box-sizing: border-box;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
                 border-bottom: 1px dashed rgba(0,0,0,0.3);
+            }
+
+            .frequency-box .text-wrapper {
+
             }
             .frequency-box:last-child {
                 border-bottom: 1px dashed rgba(0,0,0,0.3);
@@ -427,20 +436,21 @@ def render_frequency_analysis(db_connection):
             }
             .display-box {
                 width: auto;
-                height: 36px;
+                min-height: 36px;
+                height: auto;
                 margin: 0;
-                padding: 0 3px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
+                padding: 4px 3px;
+                display: grid;
+                place-items: center;        /* Centers both horizontally and vertically */
                 font-weight: bold;
                 font-size: 13px;
                 background-color: #f0f2f6;
                 border: 1px solid #000000;
                 box-sizing: border-box;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
+                text-align: center;          /* Centers wrapped text */
+                word-wrap: normal;
+                hyphens: none;
+                line-height: 1.3;
             }
             .arrow-column {
                 width: 60px;
@@ -591,8 +601,8 @@ def render_frequency_analysis(db_connection):
                                     visual_html.append(f'<div style="width: 100%; height: 28px; background-color: {color}; display: flex; align-items: center; justify-content: center; color: black; font-size: 12px; border: 1px dashed rgba(0,0,0,0.3); box-sizing: border-box;">{display_name}</div>')
                         
                         # Determinant box
-                        visual_html.append(f'<div style="width: 100%; height: 36px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 13px; background-color: #f0f2f6; border: 1px solid #000000; box-sizing: border-box;">{selected_determinant}</div>')
-                        
+                        visual_html.append(f'<div class="display-box">{selected_determinant}</div>')      
+                                          
                         # Bottom bars (if any)
                         if bottom_items:
                             for display_name, count in bottom_sorted:
