@@ -69,6 +69,45 @@ st.markdown("""
     @keyframes loading {
         0% { background-position: 200% 0; }
         100% { background-position: -200% 0; }
+            
+        /* Set fixed sidebar width for desktop */
+    section[data-testid="stSidebar"] {
+        width: 21rem !important;
+        min-width: 21rem !important;
+    }
+    
+    /* Mobile responsiveness */
+    @media (max-width: 768px) {
+        section[data-testid="stSidebar"] {
+            width: 100% !important;
+            min-width: 100% !important;
+            max-width: 100% !important;
+            position: relative !important;
+            margin-bottom: 1rem;
+        }
+        
+        /* Adjust main content for mobile */
+        .main > div {
+            padding-left: 0 !important;
+            width: 100% !important;
+        }
+        
+        /* Make sure the sidebar toggle is visible */
+        button[data-testid="baseButton-header"] {
+            display: block !important;
+        }
+    }
+    
+    /* Even smaller screens */
+    @media (max-width: 480px) {
+        section[data-testid="stSidebar"] {
+            width: 100% !important;
+        }
+        
+        /* Reduce font sizes if needed */
+        .stMarkdown, .stText, .stButton {
+            font-size: 14px;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
