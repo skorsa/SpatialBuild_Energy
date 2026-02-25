@@ -33,86 +33,15 @@ st.set_page_config(
     page_title="SpatialBuild Energy",
     page_icon="🏢",
     #layout="wide",
-    #initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # Add CSS to prevent layout shift
 st.markdown("""
 <style>
-    /* Reserve space for sidebar immediately */
-    .main {
-        transition: margin-left 0.2s ease;
-    }
-    
-    /* Set fixed sidebar width for desktop */
-    section[data-testid="stSidebar"] {
-        width: 21rem !important;
-        min-width: 21rem !important;
-        will-change: transform; /* Optimize for animations */
-    }
-    
-    /* On desktop, push main content to the right */
-    @media (min-width: 769px) {
-        .main {
-            margin-left: 21rem !important;
-            width: calc(100% - 21rem) !important;
-        }
-        
-        /* Ensure the main content doesn't overflow */
-        .main > .block-container {
-            max-width: 100% !important;
-            padding: 1rem !important;
-        }
-    }
-    
-    /* Mobile responsiveness - sidebar hidden by default */
-    @media (max-width: 768px) {
-        section[data-testid="stSidebar"] {
-            width: 0 !important;
-            min-width: 0 !important;
-            max-width: 0 !important;
-            overflow: hidden;
-            transition: width 0.3s ease;
-        }
-        
-        /* When expanded, take full width */
-        section[data-testid="stSidebar"][aria-expanded="true"] {
-            width: 100% !important;
-            min-width: 100% !important;
-            max-width: 100% !important;
-            overflow: visible;
-        }
-        
-        /* Reset main content margin on mobile */
-        .main {
-            margin-left: 0 !important;
-            width: 100% !important;
-        }
-        
-        /* Style the toggle button to look natural */
-        button[data-testid="baseButton-header"] {
-            margin: 0.5rem !important;
-            position: relative !important;
-            z-index: 999 !important;
-        }
-    }
-    
-    /* Hide any initial flash of centered content */
-    .stApp {
-        background-color: white;
-    }
+
 </style>
 
-<script>
-// Ensure the main content is positioned correctly from the start
-(function() {
-    // Apply the margin immediately before anything else renders
-    if (window.innerWidth >= 769) {
-        document.documentElement.style.setProperty('--sidebar-width', '21rem');
-    }
-})();
-</script>
-            
 """, unsafe_allow_html=True)
 
 # Initialize database wrapper in session state
@@ -3726,7 +3655,8 @@ footer_html = """
     }
     </style>
     <div class="custom_footer">
-        <p style='font-size:12px;'>If your study, or a study you are aware of, suggests any of these relationships are currently missing from the database, please email the study to sskorsavi@caad.msstate.edu<br> Your contribution will help further develop and improve this tool.</p>
+        <p style='font-size:12px;'>If your study, or a study you are aware of, suggests any of these relationships are currently missing from the database, <br>
+        please email the study to sskorsavi@caad.msstate.edu<br> Your contribution will help further develop and improve this tool.</p>
     </div>
 """
 st.markdown(footer_html, unsafe_allow_html=True)
