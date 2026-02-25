@@ -33,83 +33,85 @@ st.set_page_config(
     page_title="SpatialBuild Energy",
     page_icon="🏢",
     #layout="wide",
-    initial_sidebar_state="expanded"
+    #initial_sidebar_state="expanded"
 )
 
 # Add CSS to prevent layout shift
 st.markdown("""
 <style>
-    /* Reserve space for sidebar */
-    .main > div {
-        padding-left: 0rem;
-        transition: padding-left 0.2s ease;
-    }
-    
-    /* Set fixed sidebar width */
-    section[data-testid="stSidebar"] {
-        width: 21rem !important;
-        min-width: 21rem !important;
-    }
-    
-    /* Ensure main content doesn't shift */
+    /* Reserve space for sidebar immediately */
     .main {
         transition: margin-left 0.2s ease;
     }
     
-    /* Loading state */
-    .sidebar-loading {
-        width: 21rem;
-        height: 100vh;
-        background: linear-gradient(90deg, #f0f2f6 25%, #e6e9ef 50%, #f0f2f6 75%);
-        background-size: 200% 100%;
-        animation: loading 1.5s infinite;
-        padding: 2rem;
-    }
-            
-    @keyframes loading {
-        0% { background-position: 200% 0; }
-        100% { background-position: -200% 0; }
-            
-        /* Set fixed sidebar width for desktop */
+    /* Set fixed sidebar width for desktop */
     section[data-testid="stSidebar"] {
         width: 21rem !important;
         min-width: 21rem !important;
+        will-change: transform; /* Optimize for animations */
     }
     
-    /* Mobile responsiveness */
+    /* On desktop, push main content to the right */
+    @media (min-width: 769px) {
+        .main {
+            margin-left: 21rem !important;
+            width: calc(100% - 21rem) !important;
+        }
+        
+        /* Ensure the main content doesn't overflow */
+        .main > .block-container {
+            max-width: 100% !important;
+            padding: 1rem !important;
+        }
+    }
+    
+    /* Mobile responsiveness - sidebar hidden by default */
     @media (max-width: 768px) {
         section[data-testid="stSidebar"] {
+            width: 0 !important;
+            min-width: 0 !important;
+            max-width: 0 !important;
+            overflow: hidden;
+            transition: width 0.3s ease;
+        }
+        
+        /* When expanded, take full width */
+        section[data-testid="stSidebar"][aria-expanded="true"] {
             width: 100% !important;
             min-width: 100% !important;
             max-width: 100% !important;
-            position: relative !important;
-            margin-bottom: 1rem;
+            overflow: visible;
         }
         
-        /* Adjust main content for mobile */
-        .main > div {
-            padding-left: 0 !important;
+        /* Reset main content margin on mobile */
+        .main {
+            margin-left: 0 !important;
             width: 100% !important;
         }
         
-        /* Make sure the sidebar toggle is visible */
+        /* Style the toggle button to look natural */
         button[data-testid="baseButton-header"] {
-            display: block !important;
+            margin: 0.5rem !important;
+            position: relative !important;
+            z-index: 999 !important;
         }
     }
     
-    /* Even smaller screens */
-    @media (max-width: 480px) {
-        section[data-testid="stSidebar"] {
-            width: 100% !important;
-        }
-        
-        /* Reduce font sizes if needed */
-        .stMarkdown, .stText, .stButton {
-            font-size: 14px;
-        }
+    /* Hide any initial flash of centered content */
+    .stApp {
+        background-color: white;
     }
 </style>
+
+<script>
+// Ensure the main content is positioned correctly from the start
+(function() {
+    // Apply the margin immediately before anything else renders
+    if (window.innerWidth >= 769) {
+        document.documentElement.style.setProperty('--sidebar-width', '21rem');
+    }
+})();
+</script>
 """, unsafe_allow_html=True)
 
 # Initialize database wrapper in session state
