@@ -65,7 +65,7 @@ st.markdown("""
         animation: loading 1.5s infinite;
         padding: 2rem;
     }
-    
+            
     @keyframes loading {
         0% { background-position: 200% 0; }
         100% { background-position: -200% 0; }
