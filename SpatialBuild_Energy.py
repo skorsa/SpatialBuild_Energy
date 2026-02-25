@@ -112,6 +112,7 @@ st.markdown("""
     }
 })();
 </script>
+            
 """, unsafe_allow_html=True)
 
 # Initialize database wrapper in session state
